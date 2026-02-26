@@ -701,8 +701,23 @@ export const TestCall: Component = () => {
                 >
                   <For each={diagLog()}>
                     {(event) => (
-                      <div>
-                        {event.t}ms [{event.tag}] {event.msg}
+                      <div
+                        class={
+                          event.tag === "audio"
+                            ? "text-green-400"
+                            : event.tag === "announced"
+                              ? "text-blue-400"
+                              : event.tag === "retry" || event.tag === "stall"
+                                ? "text-yellow-400"
+                                : event.msg.includes("ERROR") ||
+                                    event.msg.includes("stalled")
+                                  ? "text-red-400"
+                                  : "text-gray-400"
+                        }
+                      >
+                        <span class="text-gray-600">{event.t}ms</span>{" "}
+                        <span class="text-gray-500">[{event.tag}]</span>{" "}
+                        {event.msg}
                       </div>
                     )}
                   </For>
