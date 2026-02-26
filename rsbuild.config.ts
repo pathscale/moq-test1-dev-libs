@@ -1,0 +1,70 @@
+import path from "node:path";
+import { defineConfig } from "@rsbuild/core";
+import { pluginBabel } from "@rsbuild/plugin-babel";
+import { pluginSolid } from "@rsbuild/plugin-solid";
+
+const solidPath = path.resolve(__dirname, "node_modules/solid-js");
+
+export default defineConfig({
+  plugins: [pluginBabel({ include: /\.(?:jsx|tsx|ts)$/ }), pluginSolid()],
+  source: {
+    alias: { "~": "./src" },
+  },
+  html: {
+    template: "./index.html",
+    title: "MoQ Test",
+    mountId: "root",
+  },
+  dev: {
+    hmr: true,
+    liveReload: true,
+  },
+  server: {
+    port: 3001,
+  },
+  tools: {
+    rspack: {
+      resolve: {
+        symlinks: false,
+        modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
+        alias: {
+          "solid-js/web": `${solidPath}/web/dist/web.js`,
+          "solid-js/store": `${solidPath}/store/dist/store.js`,
+          "solid-js": `${solidPath}/dist/solid.js`,
+        },
+        conditionNames: ["browser", "import", "module", "default"],
+      },
+      module: {
+        rules: [
+          {
+            test: /\.(?:js|mjs)$/,
+            include: /node_modules[\\/]@moq[\\/]/,
+            loader: "builtin:swc-loader",
+            options: {
+              jsc: {
+                parser: { syntax: "ecmascript" },
+                target: "es2020",
+              },
+            },
+            type: "javascript/auto",
+          },
+        ],
+        parser: {
+          javascript: {
+            dynamicImportMode: "eager",
+          },
+        },
+      },
+      optimization: {
+        splitChunks: false,
+        runtimeChunk: false,
+      },
+    },
+  },
+  output: {
+    sourceMap: {
+      js: "cheap-module-source-map",
+      css: true,
+    },
+  },
+});
