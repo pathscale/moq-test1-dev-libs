@@ -14,4 +14,5 @@ export interface RemoteParticipant {
   videoDecoder: Watch.Video.Decoder;
   audioSource: Watch.Audio.Source;
   audioDecoder: Watch.Audio.Decoder;
+  getAnalyser: () => AnalyserNode | undefined;
 }

@@ -258,6 +258,9 @@ export const TestCall: Component = () => {
       }
     });
 
+    let participantGain: GainNode | undefined;
+    let participantAnalyser: AnalyserNode | undefined;
+
     signals.effect((eff) => {
       const root = eff.get(audioDecoder.root);
       if (!root) return;
@@ -267,21 +270,38 @@ export const TestCall: Component = () => {
         log("audio", "resuming suspended AudioContext");
       }
 
-      const speaker = eff.get(audioOutputEnabled);
-      const gain = new GainNode(root.context, {
-        gain: speaker ? 1.0 : 0.0,
-      });
+      const gain = new GainNode(root.context, { gain: 0 });
+      const analyser = new AnalyserNode(root.context, { fftSize: 2048 });
       root.connect(gain);
-      gain.connect(root.context.destination);
-      log("audio", `wired gain (speaker=${speaker})`);
-      eff.cleanup(() => gain.disconnect());
+      gain.connect(analyser);
+      analyser.connect(root.context.destination);
+      participantGain = gain;
+      participantAnalyser = analyser;
+      log("audio", `wired gain+analyser for ...${shortPath}`);
+
+      eff.cleanup(() => {
+        analyser.disconnect();
+        gain.disconnect();
+        if (participantGain === gain) participantGain = undefined;
+        if (participantAnalyser === analyser) participantAnalyser = undefined;
+      });
+    });
+
+    signals.effect((eff) => {
+      const speaker = eff.get(audioOutputEnabled);
+      if (participantGain) {
+        participantGain.gain.value = speaker ? 1.0 : 0.0;
+        log("audio", `...${shortPath} gain → ${speaker ? 1 : 0}`);
+      }
     });
 
     videoSource.target.set({ pixels: 640 * 640 });
 
+    const getAnalyser = () => participantAnalyser;
+
     setParticipants((prev) => [
       ...prev,
-      { id: pathString, broadcast, sync, videoSource, videoDecoder, audioSource, audioDecoder },
+      { id: pathString, broadcast, sync, videoSource, videoDecoder, audioSource, audioDecoder, getAnalyser },
     ]);
 
     log("sub", `subscribed to ...${shortPath}`);
@@ -349,7 +369,6 @@ export const TestCall: Component = () => {
 
 
   const [pubRms, setPubRms] = createSignal(0);
-  const pubAnalyserBuf = new Uint8Array(1024);
   let pubAnalyser: AnalyserNode | undefined;
 
   const pubAudioRoot = createAccessor(localBroadcast.audio.root);
@@ -365,50 +384,31 @@ export const TestCall: Component = () => {
   });
 
   const [subRms, setSubRms] = createSignal(0);
-  let subAnalyser: AnalyserNode | undefined;
-  const subAnalyserBuf = new Uint8Array(1024);
+  const rmsBuf = new Uint8Array(1024);
 
-  createEffect(() => {
-    const ps = participants();
-    for (const p of ps) {
-      const rootAccessor = solid(p.audioDecoder.root);
-      createEffect(() => {
-        const root = rootAccessor();
-        if (!root) return;
-        const analyser = new AnalyserNode(root.context, { fftSize: 2048 });
-        root.connect(analyser);
-        subAnalyser = analyser;
-        onCleanup(() => {
-          analyser.disconnect();
-          if (subAnalyser === analyser) subAnalyser = undefined;
-        });
-      });
+  function computeRms(analyser: AnalyserNode): number {
+    analyser.getByteTimeDomainData(rmsBuf);
+    let sum = 0;
+    for (let i = 0; i < rmsBuf.length; i++) {
+      const s = (rmsBuf[i]! - 128) / 128;
+      sum += s * s;
     }
-  });
+    return Math.round(Math.sqrt(sum / rmsBuf.length) * 1000) / 1000;
+  }
 
   const rmsInterval = setInterval(() => {
     if (pubAnalyser) {
-      pubAnalyser.getByteTimeDomainData(pubAnalyserBuf);
-      let sum = 0;
-      for (let i = 0; i < pubAnalyserBuf.length; i++) {
-        const s = (pubAnalyserBuf[i]! - 128) / 128;
-        sum += s * s;
-      }
-      setPubRms(
-        Math.round(Math.sqrt(sum / pubAnalyserBuf.length) * 1000) / 1000,
-      );
+      setPubRms(computeRms(pubAnalyser));
     }
-    if (subAnalyser) {
-      subAnalyser.getByteTimeDomainData(subAnalyserBuf);
-      let sum = 0;
-      for (let i = 0; i < subAnalyserBuf.length; i++) {
-        const s = (subAnalyserBuf[i]! - 128) / 128;
-        sum += s * s;
+    let maxRms = 0;
+    for (const p of participants()) {
+      const analyser = p.getAnalyser();
+      if (analyser) {
+        const rms = computeRms(analyser);
+        if (rms > maxRms) maxRms = rms;
       }
-      setSubRms(
-        Math.round(Math.sqrt(sum / subAnalyserBuf.length) * 1000) / 1000,
-      );
     }
+    setSubRms(maxRms);
   }, 100);
   onCleanup(() => clearInterval(rmsInterval));
 
