@@ -1,23 +1,66 @@
 import {
+  Accessor,
   Component,
-  createSignal,
-  createEffect,
-  onCleanup,
   For,
   Show,
+  createEffect,
+  createSignal,
+  onCleanup,
 } from "solid-js";
 import { useParams } from "@solidjs/router";
 import * as Moq from "@moq/lite";
 import * as Publish from "@moq/publish";
 import * as Watch from "@moq/watch";
-import { Signal, Effect } from "@moq/signals";
+import { Effect, Signal } from "@moq/signals";
 import solid from "@moq/signals/solid";
 import { createAccessor } from "@moq/signals/solid";
 
-import type { DiagEvent, RemoteParticipant } from "./types";
-import { diagTime, getOrCreateStreamName } from "./helpers";
-import { VideoCanvas } from "./VideoCanvas";
 import { DebugPanel } from "./DebugPanel";
+import {
+  diagTime,
+  getOrCreateRelayUrl,
+  getOrCreateStreamName,
+  joinUrl,
+  normalizePath,
+} from "./helpers";
+import type { DiagEvent, RemoteParticipant } from "./types";
+import { VideoCanvas } from "./VideoCanvas";
+import {
+  WatchOverlayShowcase,
+  WatchWebComponentShowcase,
+} from "./WatchShowcases";
+
+function SectionCard(props: {
+  title: string;
+  subtitle: string;
+  enabled: Accessor<boolean>;
+  setEnabled: (next: boolean) => void;
+  children: any;
+}) {
+  return (
+    <section class="space-y-4 rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div class="space-y-1">
+          <div class="text-xs font-medium uppercase tracking-[0.2em] text-blue-300">
+            {props.title}
+          </div>
+          <p class="text-sm text-gray-400">{props.subtitle}</p>
+        </div>
+        <label class="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-950 px-3 py-1 text-sm text-gray-200">
+          <input
+            type="checkbox"
+            checked={props.enabled()}
+            onInput={(event) => props.setEnabled(event.currentTarget.checked)}
+          />
+          Enabled
+        </label>
+      </div>
+      <Show when={props.enabled()}>
+        {props.children}
+      </Show>
+    </section>
+  );
+}
 
 export const TestCall: Component = () => {
   const [diagLog, setDiagLog] = createSignal<DiagEvent[]>([]);
@@ -27,13 +70,15 @@ export const TestCall: Component = () => {
     setDiagLog((prev) => [evt, ...prev].slice(0, 50));
   };
 
-
   const params = useParams<{ streamName?: string }>();
   const urlStream = () =>
     params.streamName?.toLowerCase().replace(/[^a-z0-9-]/g, "");
+
   const [roomName, setRoomName] = createSignal(
     urlStream() || getOrCreateStreamName(),
   );
+  const [relayUrl, setRelayUrl] = createSignal(getOrCreateRelayUrl());
+  const [watchPathOverride, setWatchPathOverride] = createSignal("");
 
   const handleNameChange = (value: string) => {
     const clean = value.toLowerCase().replace(/[^a-z0-9-]/g, "");
@@ -41,11 +86,39 @@ export const TestCall: Component = () => {
     localStorage.setItem("moq-test-stream-name", clean);
   };
 
+  const handleRelayUrlChange = (value: string) => {
+    setRelayUrl(value);
+    localStorage.setItem("moq-test-relay-url", value);
+  };
 
   const connection = new Moq.Connection.Reload({ enabled: false });
   const connectionStatus = createAccessor(connection.status);
   const broadcastId = crypto.randomUUID().slice(0, 8);
 
+  const [joinConfig, setJoinConfig] = createSignal<{
+    relayUrl: string;
+    roomName: string;
+  }>();
+  const joinedRoomName = () => joinConfig()?.roomName ?? roomName();
+  const joinedRelayUrl = () => joinConfig()?.relayUrl ?? relayUrl();
+  const joinedRelayPath = () => `anon/${joinedRoomName()}`;
+  const localPublishPath = () => `${joinedRelayPath()}/${broadcastId}`;
+
+  const resolvedWatchName = () => {
+    const override = normalizePath(watchPathOverride());
+    if (override) return override;
+    const remote = participants()[0]?.id;
+    return remote ?? localPublishPath();
+  };
+
+  const resolvedSectionRelayUrl = () => {
+    const relay = normalizePath(joinedRelayPath());
+    try {
+      return joinUrl(joinedRelayUrl(), relay);
+    } catch {
+      return undefined;
+    }
+  };
 
   const micEnabled = new Signal<boolean>(false);
   const broadcastVideoEnabled = Signal.from(false);
@@ -126,7 +199,6 @@ export const TestCall: Component = () => {
 
   const localFrame = solid(localBroadcast.video.frame);
 
-
   const [publishingVideo, setPublishingVideo] = createSignal(false);
   const [publishingAudio, setPublishingAudio] = createSignal(false);
   const [speakerOn, setSpeakerOn] = createSignal(false);
@@ -162,7 +234,6 @@ export const TestCall: Component = () => {
     audioOutputEnabled.set(next);
     log("track", `speaker ${next ? "ON" : "OFF"}`);
   };
-
 
   const [participants, setParticipants] = createSignal<RemoteParticipant[]>([]);
   let announcedEffect: Effect | undefined;
@@ -215,7 +286,9 @@ export const TestCall: Component = () => {
   };
 
   const subscribeToParticipant = (pathString: string) => {
-    if (participants().find((p) => p.id === pathString)) return;
+    if (participants().find((participant) => participant.id === pathString)) {
+      return;
+    }
 
     const path = Moq.Path.from(pathString);
     const broadcast = new Watch.Broadcast({
@@ -231,7 +304,6 @@ export const TestCall: Component = () => {
     const audioSource = new Watch.Audio.Source(sync, { broadcast });
     const audioDecoder = new Watch.Audio.Decoder(audioSource, { enabled: true });
 
-    // Wire audio to speakers
     const shortPath = pathString.slice(-20);
     const signals = new Effect();
 
@@ -245,16 +317,21 @@ export const TestCall: Component = () => {
     });
     signals.effect((eff) => {
       const root = eff.get(audioDecoder.root);
-      if (root) log("audio", `...${shortPath} audio root available (ctx: ${root.context.state})`);
+      if (root) {
+        log(
+          "audio",
+          `...${shortPath} audio root available (ctx: ${root.context.state})`,
+        );
+      }
     });
     let lastLoggedBytes = 0;
     signals.effect((eff) => {
       const stats = eff.get(audioDecoder.stats);
       if (!stats || stats.bytesReceived <= 0) return;
-      const b = stats.bytesReceived;
-      if (lastLoggedBytes === 0 || b - lastLoggedBytes >= 1024) {
-        log("audio", `...${shortPath} audio bytes: ${b}`);
-        lastLoggedBytes = b;
+      const bytes = stats.bytesReceived;
+      if (lastLoggedBytes === 0 || bytes - lastLoggedBytes >= 1024) {
+        log("audio", `...${shortPath} audio bytes: ${bytes}`);
+        lastLoggedBytes = bytes;
       }
     });
 
@@ -301,23 +378,53 @@ export const TestCall: Component = () => {
 
     setParticipants((prev) => [
       ...prev,
-      { id: pathString, broadcast, sync, videoSource, videoDecoder, audioSource, audioDecoder, getAnalyser },
+      {
+        id: pathString,
+        broadcast,
+        sync,
+        videoSource,
+        videoDecoder,
+        audioSource,
+        audioDecoder,
+        getAnalyser,
+      },
     ]);
 
     log("sub", `subscribed to ...${shortPath}`);
   };
 
-
   const [joined, setJoined] = createSignal(false);
   const [joining, setJoining] = createSignal(false);
+  const [showJsApi, setShowJsApi] = createSignal(true);
+  const [showWebComponent, setShowWebComponent] = createSignal(true);
+  const [showSolidOverlay, setShowSolidOverlay] = createSignal(true);
 
   const handleJoin = () => {
     setJoining(true);
-    const relayPath = "anon/" + roomName();
-    connection.url.set(new URL("https://usc.cdn.moq.dev/" + relayPath));
+
+    const currentRelayUrl = relayUrl().trim();
+    const currentRoomName = roomName().trim();
+    if (!currentRelayUrl || !currentRoomName) {
+      log("conn", "relay URL and room are required");
+      setJoining(false);
+      return;
+    }
+
+    const relayPath = `anon/${currentRoomName}`;
+    let url: URL;
+    try {
+      url = new URL(joinUrl(currentRelayUrl, relayPath));
+    } catch {
+      log("conn", "invalid relay URL");
+      setJoining(false);
+      return;
+    }
+
+    setJoinConfig({ relayUrl: currentRelayUrl, roomName: currentRoomName });
+    connection.url.set(url);
     connection.enabled.set(true);
 
-    const uniquePath = relayPath + "/" + broadcastId;
+    const uniquePath = `${relayPath}/${broadcastId}`;
     localBroadcast.name.set(Moq.Path.from(uniquePath));
     localBroadcast.enabled.set(true);
 
@@ -344,16 +451,17 @@ export const TestCall: Component = () => {
     connection.url.set(undefined);
     connection.enabled.set(false);
 
-    for (const p of participants()) {
-      p.sync.close();
-      p.videoDecoder.close();
-      p.videoSource.close();
-      p.audioDecoder.close();
-      p.audioSource.close();
-      p.broadcast.close();
+    for (const participant of participants()) {
+      participant.sync.close();
+      participant.videoDecoder.close();
+      participant.videoSource.close();
+      participant.audioDecoder.close();
+      participant.audioSource.close();
+      participant.broadcast.close();
     }
     setParticipants([]);
 
+    setJoinConfig(undefined);
     setJoined(false);
     log("conn", "disconnected");
   };
@@ -366,7 +474,6 @@ export const TestCall: Component = () => {
     localBroadcast.close();
     connection.close();
   });
-
 
   const [pubRms, setPubRms] = createSignal(0);
   let pubAnalyser: AnalyserNode | undefined;
@@ -390,8 +497,8 @@ export const TestCall: Component = () => {
     analyser.getByteTimeDomainData(rmsBuf);
     let sum = 0;
     for (let i = 0; i < rmsBuf.length; i++) {
-      const s = (rmsBuf[i]! - 128) / 128;
-      sum += s * s;
+      const sample = (rmsBuf[i]! - 128) / 128;
+      sum += sample * sample;
     }
     return Math.round(Math.sqrt(sum / rmsBuf.length) * 1000) / 1000;
   }
@@ -401,8 +508,8 @@ export const TestCall: Component = () => {
       setPubRms(computeRms(pubAnalyser));
     }
     let maxRms = 0;
-    for (const p of participants()) {
-      const analyser = p.getAnalyser();
+    for (const participant of participants()) {
+      const analyser = participant.getAnalyser();
       if (analyser) {
         const rms = computeRms(analyser);
         if (rms > maxRms) maxRms = rms;
@@ -412,131 +519,237 @@ export const TestCall: Component = () => {
   }, 100);
   onCleanup(() => clearInterval(rmsInterval));
 
-
   return (
-    <div class="min-h-screen bg-gray-950 text-white p-6">
-      <div class="max-w-5xl mx-auto space-y-6">
-        <div>
-          <h1 class="text-2xl font-bold">MoQ Interop Test</h1>
-          <p class="text-gray-400 text-sm">
-            Test streaming via MoQ CDN relay
-          </p>
-        </div>
-
+    <div class="min-h-screen bg-gray-950 p-6 text-white">
+      <div class="mx-auto max-w-6xl space-y-6">
         <div class="space-y-2">
-          <label class="block text-sm font-medium text-gray-400">
-            Stream Name
-          </label>
-          <input
-            type="text"
-            value={roomName()}
-            onInput={(e) => handleNameChange(e.currentTarget.value)}
-            class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white focus:outline-none focus:border-blue-500"
-            disabled={joined()}
-          />
-          <p class="text-xs text-gray-500">
-            Connects via MoQ CDN (usc.cdn.moq.dev). Share this stream name
-            with others to test together.
+          <h1 class="text-3xl font-bold">MoQ Watch Comparison Harness</h1>
+          <p class="max-w-3xl text-sm text-gray-400">
+            Side-by-side comparisons for the existing JS API flow, the
+            <code> @moq/watch </code>
+            web component, and the Solid-powered overlay.
           </p>
         </div>
 
-        <Show
-          when={joined()}
-          fallback={
-            <button
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              onClick={handleJoin}
-              disabled={joining()}
-            >
-              <Show when={joining()}>
-                <span class="loading loading-spinner loading-sm" />
-              </Show>
-              {joining() ? "Connecting..." : "Join"}
-            </button>
-          }
-        >
-          <div class="flex items-center gap-2">
-            <button
-              class={`px-4 py-2 rounded font-medium text-sm ${
-                publishingAudio()
-                  ? "bg-green-600 hover:bg-green-700"
-                  : "bg-gray-700 hover:bg-gray-600"
-              }`}
-              onClick={toggleAudio}
-            >
-              Mic
-            </button>
-            <button
-              class={`px-4 py-2 rounded font-medium text-sm ${
-                publishingVideo()
-                  ? "bg-green-600 hover:bg-green-700"
-                  : "bg-gray-700 hover:bg-gray-600"
-              }`}
-              onClick={toggleVideo}
-            >
-              Cam
-            </button>
-            <button
-              class={`px-4 py-2 rounded font-medium text-sm ${
-                speakerOn()
-                  ? "bg-green-600 hover:bg-green-700"
-                  : "bg-gray-700 hover:bg-gray-600"
-              }`}
-              onClick={toggleSpeaker}
-            >
-              Spkr
-            </button>
-            <button
-              class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium text-sm"
-              onClick={handleLeave}
-            >
-              Leave
-            </button>
+        <section class="space-y-4 rounded-xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="space-y-1">
+            <div class="text-xs font-medium uppercase tracking-[0.2em] text-gray-400">
+              Shared Controls
+            </div>
+            <p class="text-sm text-gray-400">
+              Relay and room are shared across all three sections. Sections B and
+              C can optionally watch an explicit broadcast path.
+            </p>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div class="relative aspect-video rounded-md overflow-hidden bg-gray-800">
-              <Show
-                when={publishingVideo()}
-                fallback={
-                  <div class="flex items-center justify-center h-full text-gray-500">
-                    Video Paused
-                  </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <div class="space-y-2">
+              <label class="block text-sm font-medium text-gray-300">
+                Relay URL
+              </label>
+              <input
+                type="text"
+                value={relayUrl()}
+                onInput={(event) =>
+                  handleRelayUrlChange(event.currentTarget.value)
                 }
-              >
-                <VideoCanvas frame={localFrame} flip />
-              </Show>
-              <div class="absolute bottom-2 left-2 bg-black/60 px-2 py-1 rounded text-xs">
-                You
-              </div>
+                class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                placeholder="https://relay.example.com"
+              />
             </div>
 
-            <For each={participants()}>
-              {(p) => {
-                const remoteFrame = solid(p.videoDecoder.frame);
-                return (
-                  <div class="relative aspect-video rounded-md overflow-hidden bg-gray-800">
-                    <VideoCanvas frame={remoteFrame} />
-                    <div class="absolute bottom-2 left-2 bg-black/60 px-2 py-1 rounded text-xs">
-                      Participant
-                    </div>
-                  </div>
-                );
-              }}
-            </For>
+            <div class="space-y-2">
+              <label class="block text-sm font-medium text-gray-300">
+                Room
+              </label>
+              <input
+                type="text"
+                value={roomName()}
+                onInput={(event) => handleNameChange(event.currentTarget.value)}
+                class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                placeholder="my-room"
+              />
+            </div>
           </div>
 
-          <DebugPanel
-            connectionStatus={connectionStatus}
-            roomName={roomName}
-            publishingAudio={publishingAudio}
-            speakerOn={speakerOn}
-            participantCount={() => participants().length}
-            pubRms={pubRms}
-            subRms={subRms}
-            diagLog={diagLog}
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-gray-300">
+              Watch Path Override
+            </label>
+            <input
+              type="text"
+              value={watchPathOverride()}
+              onInput={(event) => setWatchPathOverride(event.currentTarget.value)}
+              class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+              placeholder="Optional: anon/my-room/participant-id"
+            />
+            <p class="text-xs text-gray-500">
+              If empty, Sections B and C watch the first discovered remote
+              participant, or the current JS API local publish path.
+            </p>
+          </div>
+
+          <div class="grid gap-3 text-xs text-gray-400 md:grid-cols-2">
+            <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
+              <div class="text-gray-500">Resolved relay URL for Sections B/C</div>
+              <div class="break-all pt-1 text-gray-200">
+                {resolvedSectionRelayUrl() || "invalid relay URL"}
+              </div>
+            </div>
+            <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
+              <div class="text-gray-500">Resolved watch name for Sections B/C</div>
+              <div class="break-all pt-1 text-gray-200">
+                {resolvedWatchName()}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <SectionCard
+          title="Section A -> JS API"
+          subtitle="Existing manual publish / announce / subscribe flow kept intact for comparison."
+          enabled={showJsApi}
+          setEnabled={setShowJsApi}
+        >
+          <Show
+            when={joined()}
+            fallback={
+              <button
+                class="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 font-medium hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={handleJoin}
+                disabled={joining()}
+              >
+                <Show when={joining()}>
+                  <span class="loading loading-spinner loading-sm" />
+                </Show>
+                {joining() ? "Connecting..." : "Join"}
+              </button>
+            }
+          >
+            <div class="space-y-4">
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  class={`rounded px-4 py-2 text-sm font-medium ${
+                    publishingAudio()
+                      ? "bg-green-600 hover:bg-green-700"
+                      : "bg-gray-700 hover:bg-gray-600"
+                  }`}
+                  onClick={toggleAudio}
+                >
+                  Mic
+                </button>
+                <button
+                  class={`rounded px-4 py-2 text-sm font-medium ${
+                    publishingVideo()
+                      ? "bg-green-600 hover:bg-green-700"
+                      : "bg-gray-700 hover:bg-gray-600"
+                  }`}
+                  onClick={toggleVideo}
+                >
+                  Cam
+                </button>
+                <button
+                  class={`rounded px-4 py-2 text-sm font-medium ${
+                    speakerOn()
+                      ? "bg-green-600 hover:bg-green-700"
+                      : "bg-gray-700 hover:bg-gray-600"
+                  }`}
+                  onClick={toggleSpeaker}
+                >
+                  Spkr
+                </button>
+                <button
+                  class="rounded bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-700"
+                  onClick={handleLeave}
+                >
+                  Leave
+                </button>
+              </div>
+
+              <div class="grid gap-3 text-xs text-gray-400 md:grid-cols-2">
+                <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
+                  <div class="text-gray-500">Active room path</div>
+                  <div class="break-all pt-1 text-gray-200">
+                    {joinedRelayPath()}
+                  </div>
+                </div>
+                <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
+                  <div class="text-gray-500">Local publish path</div>
+                  <div class="break-all pt-1 text-gray-200">
+                    {String(localBroadcast.name.peek() || localPublishPath())}
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div class="relative aspect-video overflow-hidden rounded-md bg-gray-800">
+                  <Show
+                    when={publishingVideo()}
+                    fallback={
+                      <div class="flex h-full items-center justify-center text-gray-500">
+                        Video Paused
+                      </div>
+                    }
+                  >
+                    <VideoCanvas frame={localFrame} flip />
+                  </Show>
+                  <div class="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
+                    You
+                  </div>
+                </div>
+
+                <For each={participants()}>
+                  {(participant) => {
+                    const remoteFrame = solid(participant.videoDecoder.frame);
+                    return (
+                      <div class="relative aspect-video overflow-hidden rounded-md bg-gray-800">
+                        <VideoCanvas frame={remoteFrame} />
+                        <div class="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
+                          Participant
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
+
+              <DebugPanel
+                connectionStatus={connectionStatus}
+                roomName={joinedRoomName}
+                publishingAudio={publishingAudio}
+                speakerOn={speakerOn}
+                participantCount={() => participants().length}
+                pubRms={pubRms}
+                subRms={subRms}
+                diagLog={diagLog}
+              />
+            </div>
+          </Show>
+        </SectionCard>
+
+        <SectionCard
+          title="Section B -> Web Component"
+          subtitle="Official bare <moq-watch> element with only relay URL + name wiring."
+          enabled={showWebComponent}
+          setEnabled={setShowWebComponent}
+        >
+          <WatchWebComponentShowcase
+            relayUrl={resolvedSectionRelayUrl}
+            watchName={resolvedWatchName}
           />
-        </Show>
+        </SectionCard>
+
+        <SectionCard
+          title="Section C -> SolidJS Overlay"
+          subtitle="Official Solid-powered watch UI layered over the same <moq-watch> target."
+          enabled={showSolidOverlay}
+          setEnabled={setShowSolidOverlay}
+        >
+          <WatchOverlayShowcase
+            relayUrl={resolvedSectionRelayUrl}
+            watchName={resolvedWatchName}
+          />
+        </SectionCard>
       </div>
     </div>
   );

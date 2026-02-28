@@ -26,3 +26,24 @@ export function getOrCreateStreamName(): string {
   localStorage.setItem(key, name);
   return name;
 }
+
+export function getOrCreateRelayUrl(): string {
+  const key = "moq-test-relay-url";
+  const stored = localStorage.getItem(key);
+  if (stored) return stored;
+  const url = "https://usc.cdn.moq.dev";
+  localStorage.setItem(key, url);
+  return url;
+}
+
+export function normalizePath(path: string): string {
+  return path.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+export function joinUrl(base: string, path: string): string {
+  const url = new URL(base);
+  const basePath = url.pathname.replace(/\/+$/, "");
+  const nextPath = normalizePath(path);
+  url.pathname = nextPath ? `${basePath}/${nextPath}`.replace(/\/+/g, "/") : basePath || "/";
+  return url.toString();
+}
