@@ -20,6 +20,21 @@ declare module "solid-js" {
         style?: string | JSX.CSSProperties;
         children?: JSX.Element;
       };
+      "moq-publish": {
+        url?: string;
+        name?: string;
+        muted?: boolean;
+        invisible?: boolean;
+        source?: string;
+        class?: string;
+        style?: string | JSX.CSSProperties;
+        children?: JSX.Element;
+      };
+      "moq-publish-ui": {
+        class?: string;
+        style?: string | JSX.CSSProperties;
+        children?: JSX.Element;
+      };
     }
   }
 }

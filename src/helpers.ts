@@ -31,7 +31,7 @@ export function getOrCreateRelayUrl(): string {
   const key = "moq-test-relay-url";
   const stored = localStorage.getItem(key);
   if (stored) return stored;
-  const url = "https://usc.cdn.moq.dev";
+  const url = "https://us-east-1.devrelay.sylvan-b.com";
   localStorage.setItem(key, url);
   return url;
 }

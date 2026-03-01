@@ -29,6 +29,8 @@ import {
   WatchOverlayShowcase,
   WatchWebComponentShowcase,
 } from "./WatchShowcases";
+import "@moq/publish/element";
+import "@moq/publish/ui";
 
 function SectionCard(props: {
   title: string;
@@ -112,9 +114,9 @@ export const TestCall: Component = () => {
   };
 
   const resolvedSectionRelayUrl = () => {
-    const relay = normalizePath(joinedRelayPath());
     try {
-      return joinUrl(joinedRelayUrl(), relay);
+      new URL(joinedRelayUrl());
+      return joinedRelayUrl();
     } catch {
       return undefined;
     }
@@ -413,7 +415,7 @@ export const TestCall: Component = () => {
     const relayPath = `anon/${currentRoomName}`;
     let url: URL;
     try {
-      url = new URL(joinUrl(currentRelayUrl, relayPath));
+      url = new URL(currentRelayUrl);
     } catch {
       log("conn", "invalid relay URL");
       setJoining(false);
@@ -612,117 +614,35 @@ export const TestCall: Component = () => {
           setEnabled={setShowJsApi}
         >
           <Show
-            when={joined()}
+            when={resolvedSectionRelayUrl() && joinedRoomName()}
             fallback={
-              <button
-                class="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 font-medium hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={handleJoin}
-                disabled={joining()}
-              >
-                <Show when={joining()}>
-                  <span class="loading loading-spinner loading-sm" />
-                </Show>
-                {joining() ? "Connecting..." : "Join"}
-              </button>
+              <div class="rounded border border-yellow-800 bg-yellow-950/40 p-3 text-sm text-yellow-200">
+                Enter a valid relay URL and room name to publish.
+              </div>
             }
           >
-            <div class="space-y-4">
-              <div class="flex flex-wrap items-center gap-2">
-                <button
-                  class={`rounded px-4 py-2 text-sm font-medium ${
-                    publishingAudio()
-                      ? "bg-green-600 hover:bg-green-700"
-                      : "bg-gray-700 hover:bg-gray-600"
-                  }`}
-                  onClick={toggleAudio}
-                >
-                  Mic
-                </button>
-                <button
-                  class={`rounded px-4 py-2 text-sm font-medium ${
-                    publishingVideo()
-                      ? "bg-green-600 hover:bg-green-700"
-                      : "bg-gray-700 hover:bg-gray-600"
-                  }`}
-                  onClick={toggleVideo}
-                >
-                  Cam
-                </button>
-                <button
-                  class={`rounded px-4 py-2 text-sm font-medium ${
-                    speakerOn()
-                      ? "bg-green-600 hover:bg-green-700"
-                      : "bg-gray-700 hover:bg-gray-600"
-                  }`}
-                  onClick={toggleSpeaker}
-                >
-                  Spkr
-                </button>
-                <button
-                  class="rounded bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-700"
-                  onClick={handleLeave}
-                >
-                  Leave
-                </button>
-              </div>
-
-              <div class="grid gap-3 text-xs text-gray-400 md:grid-cols-2">
-                <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
-                  <div class="text-gray-500">Active room path</div>
-                  <div class="break-all pt-1 text-gray-200">
-                    {joinedRelayPath()}
-                  </div>
+            <div class="space-y-3">
+              <div class="space-y-2 text-xs text-gray-400">
+                <div>
+                  <span class="text-gray-500">Relay:</span>{" "}
+                  {resolvedSectionRelayUrl()}
                 </div>
-                <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
-                  <div class="text-gray-500">Local publish path</div>
-                  <div class="break-all pt-1 text-gray-200">
-                    {String(localBroadcast.name.peek() || localPublishPath())}
-                  </div>
+                <div>
+                  <span class="text-gray-500">Publish name:</span>{" "}
+                  {localPublishPath()}
                 </div>
               </div>
-
-              <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div class="relative aspect-video overflow-hidden rounded-md bg-gray-800">
-                  <Show
-                    when={publishingVideo()}
-                    fallback={
-                      <div class="flex h-full items-center justify-center text-gray-500">
-                        Video Paused
-                      </div>
-                    }
+              <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
+                <moq-publish-ui>
+                  <moq-publish
+                    url={resolvedSectionRelayUrl()}
+                    name={localPublishPath()}
+                    class="block min-h-64 w-full"
                   >
-                    <VideoCanvas frame={localFrame} flip />
-                  </Show>
-                  <div class="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
-                    You
-                  </div>
-                </div>
-
-                <For each={participants()}>
-                  {(participant) => {
-                    const remoteFrame = solid(participant.videoDecoder.frame);
-                    return (
-                      <div class="relative aspect-video overflow-hidden rounded-md bg-gray-800">
-                        <VideoCanvas frame={remoteFrame} />
-                        <div class="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
-                          Participant
-                        </div>
-                      </div>
-                    );
-                  }}
-                </For>
+                    <video muted autoplay class="h-full w-full bg-black" />
+                  </moq-publish>
+                </moq-publish-ui>
               </div>
-
-              <DebugPanel
-                connectionStatus={connectionStatus}
-                roomName={joinedRoomName}
-                publishingAudio={publishingAudio}
-                speakerOn={speakerOn}
-                participantCount={() => participants().length}
-                pubRms={pubRms}
-                subRms={subRms}
-                diagLog={diagLog}
-              />
             </div>
           </Show>
         </SectionCard>
