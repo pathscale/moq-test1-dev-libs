@@ -1,4 +1,5 @@
 const T0 = performance.now();
+const DEFAULT_RELAY = "https://us-east-1.devrelay.sylvan-b.com/";
 
 export function diagTime(): number {
   return Math.round(performance.now() - T0);
@@ -31,9 +32,8 @@ export function getOrCreateRelayUrl(): string {
   const key = "moq-test-relay-url";
   const stored = localStorage.getItem(key);
   if (stored) return stored;
-  const url = "https://usc.cdn.moq.dev";
-  localStorage.setItem(key, url);
-  return url;
+  localStorage.setItem(key, DEFAULT_RELAY);
+  return DEFAULT_RELAY;
 }
 
 export function normalizePath(path: string): string {
