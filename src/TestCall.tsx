@@ -237,6 +237,41 @@ export const TestCall: Component = () => {
 
   const [participants, setParticipants] = createSignal<RemoteParticipant[]>([]);
   let announcedEffect: Effect | undefined;
+  let unloading = false;
+
+  const getRoomPrefix = (name: string) => `anon/${name}`;
+  const getPublishName = (prefix: string) => `${prefix}/${broadcastId}`;
+
+  const closeParticipant = (participant: RemoteParticipant) => {
+    participant.signals.close();
+    participant.sync.close();
+    participant.videoDecoder.close();
+    participant.videoSource.close();
+    participant.audioDecoder.close();
+    participant.audioSource.close();
+    participant.broadcast.close();
+  };
+
+  const removeParticipant = (pathString: string) => {
+    let removed: RemoteParticipant | undefined;
+
+    setParticipants((prev) =>
+      prev.filter((participant) => {
+        if (participant.id !== pathString) return true;
+        removed = participant;
+        return false;
+      }),
+    );
+
+    if (!removed) {
+      log("sub", `remove requested for unknown participant: ${pathString}`);
+      return;
+    }
+
+    closeParticipant(removed);
+    console.log("Participant removed:", pathString);
+    log("sub", `participant removed: ${pathString}`);
+  };
 
   const runAnnounced = (streamPrefix: string) => {
     if (announcedEffect) {
@@ -253,6 +288,8 @@ export const TestCall: Component = () => {
       log("announced", "connection available, starting listener");
 
       const prefix = Moq.Path.from(streamPrefix);
+      console.log("ANNOUNCE prefix:", String(prefix));
+      log("announced", `listening on prefix: ${String(prefix)}`);
       const announced = conn.announced(prefix);
       effect.cleanup(() => announced.close());
 
@@ -267,15 +304,24 @@ export const TestCall: Component = () => {
             }
 
             const localPath = localBroadcast.name.peek();
+            console.log("Announced event:", update);
+            log(
+              "announced",
+              `event active=${update.active} path=${String(update.path)}`,
+            );
             if (String(update.path) === String(localPath)) {
+              log("announced", `ignoring local broadcast: ${String(update.path)}`);
               continue;
             }
 
             if (update.active) {
+              console.log("Announce active:", String(update.path));
               log("announced", `REMOTE ACTIVE: ${update.path}`);
               subscribeToParticipant(String(update.path));
             } else {
+              console.log("Announce active:", false, String(update.path));
               log("announced", `REMOTE INACTIVE: ${update.path}`);
+              removeParticipant(String(update.path));
             }
           }
         } catch (err) {
@@ -287,6 +333,7 @@ export const TestCall: Component = () => {
 
   const subscribeToParticipant = (pathString: string) => {
     if (participants().find((participant) => participant.id === pathString)) {
+      log("sub", `already tracking participant: ${pathString}`);
       return;
     }
 
@@ -386,11 +433,12 @@ export const TestCall: Component = () => {
         videoDecoder,
         audioSource,
         audioDecoder,
+        signals,
         getAnalyser,
       },
     ]);
 
-    log("sub", `subscribed to ...${shortPath}`);
+    log("sub", `subscribed to ${pathString}`);
   };
 
   const [joined, setJoined] = createSignal(false);
@@ -410,7 +458,8 @@ export const TestCall: Component = () => {
       return;
     }
 
-    const relayPath = `anon/${currentRoomName}`;
+    const relayPath = getRoomPrefix(currentRoomName);
+    const publishName = getPublishName(relayPath);
     let url: URL;
     try {
       url = new URL(joinUrl(currentRelayUrl, relayPath));
@@ -424,8 +473,15 @@ export const TestCall: Component = () => {
     connection.url.set(url);
     connection.enabled.set(true);
 
-    const uniquePath = `${relayPath}/${broadcastId}`;
-    localBroadcast.name.set(Moq.Path.from(uniquePath));
+    console.log("JOIN publish name:", publishName);
+    console.log("JOIN broadcast ID:", broadcastId);
+    console.log("JOIN room prefix:", relayPath);
+    console.log("JOIN final stream name:", publishName);
+    log("conn", `join room prefix: ${relayPath}`);
+    log("conn", `join publish name: ${publishName}`);
+
+    localBroadcast.name.set(Moq.Path.from(publishName));
+    log("announced", `announce requested: ${publishName}`);
     localBroadcast.enabled.set(true);
 
     log("conn", "connection + broadcast enabled");
@@ -447,17 +503,14 @@ export const TestCall: Component = () => {
     setPublishingVideo(false);
     setPublishingAudio(false);
 
+    log("conn", "teardown local broadcast");
     localBroadcast.enabled.set(false);
+    localBroadcast.name.set(undefined);
     connection.url.set(undefined);
     connection.enabled.set(false);
 
     for (const participant of participants()) {
-      participant.sync.close();
-      participant.videoDecoder.close();
-      participant.videoSource.close();
-      participant.audioDecoder.close();
-      participant.audioSource.close();
-      participant.broadcast.close();
+      closeParticipant(participant);
     }
     setParticipants([]);
 
@@ -473,6 +526,18 @@ export const TestCall: Component = () => {
     localAudioSource.close();
     localBroadcast.close();
     connection.close();
+  });
+
+  const handleBeforeUnload = () => {
+    unloading = true;
+    log("conn", "beforeunload -> leave");
+    handleLeave();
+  };
+
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  onCleanup(() => {
+    if (unloading) return;
+    window.removeEventListener("beforeunload", handleBeforeUnload);
   });
 
   const [pubRms, setPubRms] = createSignal(0);
@@ -718,7 +783,9 @@ export const TestCall: Component = () => {
                 roomName={joinedRoomName}
                 publishingAudio={publishingAudio}
                 speakerOn={speakerOn}
-                participantCount={() => participants().length}
+                participantCount={() =>
+                  participants().length + (joined() ? 1 : 0)
+                }
                 pubRms={pubRms}
                 subRms={subRms}
                 diagLog={diagLog}

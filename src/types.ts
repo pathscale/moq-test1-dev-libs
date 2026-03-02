@@ -1,3 +1,4 @@
+import type { Effect } from "@moq/signals";
 import type * as Watch from "@moq/watch";
 
 export interface DiagEvent {
@@ -14,5 +15,6 @@ export interface RemoteParticipant {
   videoDecoder: Watch.Video.Decoder;
   audioSource: Watch.Audio.Source;
   audioDecoder: Watch.Audio.Decoder;
+  signals: Effect;
   getAnalyser: () => AnalyserNode | undefined;
 }
