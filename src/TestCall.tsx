@@ -606,7 +606,7 @@ export const TestCall: Component = () => {
     <div class="min-h-screen bg-gray-950 p-6 text-white">
       <div class="mx-auto max-w-6xl space-y-6">
         <div class="space-y-2">
-          <h1 class="text-3xl font-bold">MoQ Watch Comparison Harness (Test Deploy)</h1>
+          <h1 class="text-3xl font-bold">MoQ Watch Comparison Harness</h1>
           <p class="max-w-3xl text-sm text-gray-400">
             Side-by-side comparisons for the existing JS API flow, the
             <code> @moq/watch </code>
