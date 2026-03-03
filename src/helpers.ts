@@ -1,5 +1,5 @@
 const T0 = performance.now();
-const DEFAULT_RELAY = "http://hk.nofilter.io";
+const DEFAULT_RELAY = "https://hk.nofilter.io";
 
 export function diagTime(): number {
   return Math.round(performance.now() - T0);
