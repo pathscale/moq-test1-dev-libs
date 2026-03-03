@@ -827,6 +827,7 @@ export const TestCall: Component = () => {
           setEnabled={setShowWebComponent}
         >
           <WatchWebComponentShowcase
+            enabled={joined}
             relayUrl={resolvedSectionRelayUrl}
             watchName={resolvedWatchName}
           />
@@ -839,6 +840,7 @@ export const TestCall: Component = () => {
           setEnabled={setShowSolidOverlay}
         >
           <WatchOverlayShowcase
+            enabled={joined}
             relayUrl={resolvedSectionRelayUrl}
             watchName={resolvedWatchName}
           />

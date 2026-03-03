@@ -5,6 +5,15 @@ import "@moq/watch/ui";
 interface SharedWatchProps {
   relayUrl: Accessor<string | undefined>;
   watchName: Accessor<string | undefined>;
+  enabled: Accessor<boolean>; 
+}
+
+function BlackPlaceholder() {
+  return (
+    <div class="flex min-h-64 w-full items-center justify-center bg-black text-sm text-gray-500">
+      Not connected
+    </div>
+  );
 }
 
 function WatchTargetSummary(props: SharedWatchProps) {
@@ -29,12 +38,8 @@ export function WatchWebComponentShowcase(props: SharedWatchProps) {
       </p>
       <WatchTargetSummary {...props} />
       <Show
-        when={props.relayUrl() && props.watchName()}
-        fallback={
-          <div class="rounded border border-yellow-800 bg-yellow-950/40 p-3 text-sm text-yellow-200">
-            Enter a valid relay URL and watch target.
-          </div>
-        }
+        when={props.relayUrl() && props.watchName() && props.enabled()}
+        fallback={<BlackPlaceholder />} 
       >
         <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
           <moq-watch
@@ -58,12 +63,8 @@ export function WatchOverlayShowcase(props: SharedWatchProps) {
       </p>
       <WatchTargetSummary {...props} />
       <Show
-        when={props.relayUrl() && props.watchName()}
-        fallback={
-          <div class="rounded border border-yellow-800 bg-yellow-950/40 p-3 text-sm text-yellow-200">
-            Enter a valid relay URL and watch target.
-          </div>
-        }
+        when={props.relayUrl() && props.watchName() && props.enabled()}
+        fallback={<BlackPlaceholder />}
       >
         <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
           <moq-watch-ui class="block">
