@@ -113,7 +113,8 @@ export function useTestSession() {
       return;
     }
 
-    if (url.protocol !== "https:") {
+    const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    if (url.protocol !== "https:" && !isLocalhost) {
       log("conn", "relay URL must use https:// for WebTransport");
       setJoining(false);
       return;

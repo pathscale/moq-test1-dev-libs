@@ -34,7 +34,7 @@ export function TestControls(props: {
             class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
           >
             <For each={RELAY_OPTIONS}>
-              {(relay) => <option value={relay.url}>{relay.name}</option>}
+              {(relay) => <option value={relay.url}>{relay.url}</option>}
             </For>
           </select>
         </div>

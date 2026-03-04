@@ -21,9 +21,36 @@ Opens on `http://localhost:3001`.
 
 To share a specific room, use the URL: `http://localhost:3001/my-room-name`
 
+## Local Relay
+
+To run a local MoQ relay server instead of the public CDN:
+
+**Requirements:** [Just](https://github.com/casey/just), [Rust](https://www.rust-lang.org/tools/install), [Bun](https://bun.sh/), [FFmpeg](https://ffmpeg.org/download.html)
+
+```bash
+# From the moq repo (../moq)
+cd ../moq
+just install
+
+# Terminal 1: Start the relay server (listens on localhost:4443)
+just relay
+
+# Terminal 2 (optional): Publish a demo video
+just pub tos
+```
+
+Then select `http://localhost:4443` from the relay dropdown in the app. The `@moq/lite` library automatically fetches the self-signed certificate fingerprint from `http://localhost:4443/certificate.sha256` and upgrades to HTTPS for WebTransport.
+
+If you have [Nix](https://nixos.org/download.html) with flakes enabled, you can skip manual installs:
+
+```bash
+cd ../moq
+nix develop -c just relay
+```
+
 ## CDN
 
-Hardcoded to `usc.cdn.moq.dev` (US Central node). The MoQ CDN also has `euc.cdn.moq.dev` (Europe) and `sea.cdn.moq.dev` (Asia) — change in `src/TestCall.tsx` if needed.
+The relay dropdown includes several public CDN nodes (`usc.cdn.moq.dev`, `hk.nofilter.io`, etc.) — no local setup needed for those.
 
 ## Stack
 
