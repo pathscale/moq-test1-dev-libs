@@ -10,6 +10,7 @@ import {
   normalizePath,
 } from "../helpers";
 import type { DiagEvent } from "../types";
+import { applyTransportPolicy } from "../utils/transportPolicy";
 
 export function useTestSession() {
   const [diagLog, setDiagLog] = createSignal<DiagEvent[]>([]);
@@ -36,12 +37,11 @@ export function useTestSession() {
   const [joined, setJoined] = createSignal(false);
   const [participants, setParticipants] = createSignal<string[]>([]);
 
-  const connection = new Moq.Connection.Reload({
-    enabled: false,
-    websocket: {
+  const connection = applyTransportPolicy(
+    new Moq.Connection.Reload({
       enabled: false,
-    },
-  });
+    }),
+  );
   const connectionStatus = createAccessor(connection.status);
   const establishedConnection = createAccessor(connection.established);
   const broadcastId = crypto.randomUUID().slice(0, 8);

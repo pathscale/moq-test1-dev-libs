@@ -1,7 +1,7 @@
 import { Accessor, For, Show } from "solid-js";
 import type { DiagEvent } from "./types";
 
-interface DebugPanelProps {
+export interface DebugPanelProps {
   connectionStatus: Accessor<string>;
   roomName: Accessor<string>;
   publishingAudio: Accessor<boolean | undefined>;

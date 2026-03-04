@@ -3,10 +3,12 @@ import type * as Moq from "@moq/lite";
 import "@moq/watch/element";
 import "@moq/watch/ui";
 
+import { applyTransportPolicy } from "../../utils/transportPolicy";
+
 interface SharedWatchProps {
   relayUrl: Accessor<string | undefined>;
   watchName: Accessor<string | undefined>;
-  enabled: Accessor<boolean>; 
+  enabled: Accessor<boolean>;
 }
 
 type MoqWatchElement = HTMLElement & {
@@ -43,7 +45,7 @@ function ConfiguredMoqWatch(props: SharedWatchProps) {
   createEffect(() => {
     const element = watchElement;
     if (!element) return;
-    element.connection.websocket = { enabled: false };
+    applyTransportPolicy(element.connection);
     element.url = props.relayUrl();
     element.name = props.watchName();
   });
@@ -69,7 +71,7 @@ export function WatchWebComponentShowcase(props: SharedWatchProps) {
       <WatchTargetSummary {...props} />
       <Show
         when={props.relayUrl() && props.watchName() && props.enabled()}
-        fallback={<BlackPlaceholder />} 
+        fallback={<BlackPlaceholder />}
       >
         <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
           <ConfiguredMoqWatch {...props} />

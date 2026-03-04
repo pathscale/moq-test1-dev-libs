@@ -1,16 +1,16 @@
 import { Show, createEffect, createSignal } from "solid-js";
 import * as Moq from "@moq/lite";
 
-import { DebugPanel } from "../DebugPanel";
 import { useTestSession } from "../hooks/useTestSession";
 import {
   SectionCard,
-  TestPageShell,
-} from "../components/TestPageShell";
+  TestShell,
+} from "../components/TestShell";
 import {
   WatchOverlayShowcase,
   WatchWebComponentShowcase,
-} from "../WatchShowcases";
+} from "../scenarios/web-components/WatchShowcases";
+import { applyTransportPolicy } from "../utils/transportPolicy";
 import "@moq/publish/element";
 import "@moq/publish/ui";
 
@@ -30,16 +30,27 @@ export function WebComponentsPage() {
   createEffect(() => {
     const element = publishElement;
     if (!element) return;
-    element.connection.websocket = { enabled: false };
+    applyTransportPolicy(element.connection);
     element.url = session.resolvedSectionRelayUrl();
     element.name = session.localPublishPath();
   });
 
   return (
-    <TestPageShell
+    <TestShell
       title="MoQ Web Components"
       subtitle="Current publish and watch harness using the official MoQ web components."
       session={session}
+      debugPanel={{
+        connectionStatus: session.connectionStatus,
+        roomName: session.joinedRoomName,
+        publishingAudio: () => undefined,
+        speakerOn: () => undefined,
+        participantCount: () =>
+          session.participants().length + (session.joined() ? 1 : 0),
+        pubRms: () => undefined,
+        subRms: () => undefined,
+        diagLog: session.diagLog,
+      }}
     >
       <SectionCard
         title="Section A -> Web Component Publish"
@@ -47,31 +58,8 @@ export function WebComponentsPage() {
         enabled={showJsApi}
         setEnabled={setShowJsApi}
       >
-        <Show
-          when={session.joined()}
-          fallback={
-            <button
-              class="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 font-medium hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={session.handleJoin}
-              disabled={session.joining()}
-            >
-              <Show when={session.joining()}>
-                <span class="loading loading-spinner loading-sm" />
-              </Show>
-              {session.joining() ? "Connecting..." : "Join"}
-            </button>
-          }
-        >
+        <Show when={session.joined()}>
           <div class="space-y-4">
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                class="rounded bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-700"
-                onClick={session.handleLeave}
-              >
-                Leave
-              </button>
-            </div>
-
             <div class="grid gap-3 text-xs text-gray-400 md:grid-cols-2">
               <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
                 <div class="text-gray-500">Active room path</div>
@@ -99,19 +87,6 @@ export function WebComponentsPage() {
                 </moq-publish>
               </moq-publish-ui>
             </div>
-
-            <DebugPanel
-              connectionStatus={session.connectionStatus}
-              roomName={session.joinedRoomName}
-              publishingAudio={() => undefined}
-              speakerOn={() => undefined}
-              participantCount={() =>
-                session.participants().length + (session.joined() ? 1 : 0)
-              }
-              pubRms={() => undefined}
-              subRms={() => undefined}
-              diagLog={session.diagLog}
-            />
           </div>
         </Show>
       </SectionCard>
@@ -141,6 +116,6 @@ export function WebComponentsPage() {
           watchName={session.resolvedWatchName}
         />
       </SectionCard>
-    </TestPageShell>
+    </TestShell>
   );
 }

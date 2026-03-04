@@ -4,15 +4,16 @@ import { Effect, Signal } from "@moq/signals";
 import solid, { createAccessor } from "@moq/signals/solid";
 import { createSignal } from "solid-js";
 
+import { applyTransportPolicy } from "../../utils/transportPolicy";
+
 type LogFn = (tag: string, msg: string) => void;
 
 export function createJsApiPublisher(log: LogFn) {
-  const connection = new Moq.Connection.Reload({
-    enabled: false,
-    websocket: {
+  const connection = applyTransportPolicy(
+    new Moq.Connection.Reload({
       enabled: false,
-    },
-  });
+    }),
+  );
   const connectionStatus = createAccessor(connection.status);
 
   const micEnabled = new Signal<boolean>(false);

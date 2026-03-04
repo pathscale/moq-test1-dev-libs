@@ -1,14 +1,13 @@
 import solid from "@moq/signals/solid";
 import { For, Show, createEffect, onCleanup } from "solid-js";
 
-import { DebugPanel } from "../DebugPanel";
 import { joinUrl, normalizePath } from "../helpers";
 import { useTestSession } from "../hooks/useTestSession";
 import { VideoCanvas } from "../VideoCanvas";
 import {
   SectionCard,
-  TestPageShell,
-} from "../components/TestPageShell";
+  TestShell,
+} from "../components/TestShell";
 import { createJsApiPublisher } from "../scenarios/js-api/JsApiPublisher";
 import { createJsApiSubscriber } from "../scenarios/js-api/JsApiSubscriber";
 
@@ -54,30 +53,27 @@ export function JsApiPage() {
   });
 
   return (
-    <TestPageShell
+    <TestShell
       title="MoQ JS API"
       subtitle="Direct MoQ publish and watch pipeline using the manual JavaScript API."
       session={session}
+      debugPanel={{
+        connectionStatus: publisher.connectionStatus,
+        roomName: session.joinedRoomName,
+        publishingAudio: publisher.publishingAudio,
+        speakerOn: subscriber.speakerOn,
+        participantCount: () =>
+          subscriber.participants().length + (session.joined() ? 1 : 0),
+        pubRms: publisher.pubRms,
+        subRms: subscriber.subRms,
+        diagLog: session.diagLog,
+      }}
     >
       <SectionCard
         title="JS API Scenario"
         subtitle="Manual publish, announce, subscribe, decode, and audio routing flow restored from the original harness."
       >
-        <Show
-          when={session.joined()}
-          fallback={
-            <button
-              class="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 font-medium hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={session.handleJoin}
-              disabled={session.joining()}
-            >
-              <Show when={session.joining()}>
-                <span class="loading loading-spinner loading-sm" />
-              </Show>
-              {session.joining() ? "Connecting..." : "Join"}
-            </button>
-          }
-        >
+        <Show when={session.joined()}>
           <div class="space-y-4">
             <div class="flex flex-wrap items-center gap-2">
               <button
@@ -109,12 +105,6 @@ export function JsApiPage() {
                 onClick={subscriber.toggleSpeaker}
               >
                 Spkr
-              </button>
-              <button
-                class="rounded bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-700"
-                onClick={session.handleLeave}
-              >
-                Leave
               </button>
             </div>
 
@@ -180,21 +170,9 @@ export function JsApiPage() {
               </Show>
             </div>
 
-            <DebugPanel
-              connectionStatus={publisher.connectionStatus}
-              roomName={session.joinedRoomName}
-              publishingAudio={publisher.publishingAudio}
-              speakerOn={subscriber.speakerOn}
-              participantCount={() =>
-                subscriber.participants().length + (session.joined() ? 1 : 0)
-              }
-              pubRms={publisher.pubRms}
-              subRms={subscriber.subRms}
-              diagLog={session.diagLog}
-            />
           </div>
         </Show>
       </SectionCard>
-    </TestPageShell>
+    </TestShell>
   );
 }
