@@ -647,7 +647,7 @@ export const TestCall: Component = () => {
                 <For each={RELAY_OPTIONS}>
                   {(relay) => (
                     <option value={relay.url}>
-                      {relay.name}
+                      {relay.url}
                     </option>
                   )}
                 </For>
