@@ -18,6 +18,7 @@ export function JsApiPage() {
     connection: publisher.connection,
     log: session.log,
   });
+  session.useExternalConnection(publisher.connection);
 
   const subscriptionTargets = () => {
     const override = normalizePath(session.watchPathOverride());

@@ -44,6 +44,18 @@ export function useTestSession() {
   );
   const connectionStatus = createAccessor(connection.status);
   const establishedConnection = createAccessor(connection.established);
+  const [overrideEstablished, setOverrideEstablished] = createSignal<
+    (() => ReturnType<typeof connection.established.get>) | undefined
+  >(undefined);
+
+  const activeEstablished = () => {
+    const override = overrideEstablished();
+    return override ? override() : establishedConnection();
+  };
+
+  const useExternalConnection = (conn: Moq.Connection.Reload) => {
+    setOverrideEstablished(() => createAccessor(conn.established));
+  };
   const broadcastId = crypto.randomUUID().slice(0, 8);
 
   const joinedRoomName = () => joinConfig()?.roomName ?? roomName();
@@ -146,7 +158,7 @@ export function useTestSession() {
   };
 
   createEffect(() => {
-    const conn = establishedConnection();
+    const conn = activeEstablished();
     if (!conn || !joinConfig()) return;
 
     const prefixText = joinedRelayPath();
@@ -164,7 +176,7 @@ export function useTestSession() {
 
     void (async () => {
       try {
-        for (;;) {
+        for (; ;) {
           const update = await announced.next();
           if (!update) {
             log("announced", "loop ended");
@@ -228,6 +240,7 @@ export function useTestSession() {
     resolvedWatchName,
     roomName,
     setWatchPathOverride,
+    useExternalConnection,
     watchPathOverride,
   };
 }
