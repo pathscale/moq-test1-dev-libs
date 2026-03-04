@@ -4,11 +4,11 @@ import type { DiagEvent } from "./types";
 interface DebugPanelProps {
   connectionStatus: Accessor<string>;
   roomName: Accessor<string>;
-  publishingAudio: Accessor<boolean>;
-  speakerOn: Accessor<boolean>;
+  publishingAudio: Accessor<boolean | undefined>;
+  speakerOn: Accessor<boolean | undefined>;
   participantCount: Accessor<number>;
-  pubRms: Accessor<number>;
-  subRms: Accessor<number>;
+  pubRms: Accessor<number | undefined>;
+  subRms: Accessor<number | undefined>;
   diagLog: Accessor<DiagEvent[]>;
 }
 
@@ -35,17 +35,37 @@ export function DebugPanel(props: DebugPanelProps) {
         <div class="bg-gray-900 border border-gray-700 rounded p-2">
           <div class="text-gray-500 text-xs">Mic</div>
           <div
-            class={props.publishingAudio() ? "text-green-400" : "text-red-400"}
+            class={
+              props.publishingAudio() === undefined
+                ? "text-gray-400"
+                : props.publishingAudio()
+                  ? "text-green-400"
+                  : "text-red-400"
+            }
           >
-            {props.publishingAudio() ? "ON" : "OFF"}
+            {props.publishingAudio() === undefined
+              ? "N/A"
+              : props.publishingAudio()
+                ? "ON"
+                : "OFF"}
           </div>
         </div>
         <div class="bg-gray-900 border border-gray-700 rounded p-2">
           <div class="text-gray-500 text-xs">Speaker</div>
           <div
-            class={props.speakerOn() ? "text-green-400" : "text-red-400"}
+            class={
+              props.speakerOn() === undefined
+                ? "text-gray-400"
+                : props.speakerOn()
+                  ? "text-green-400"
+                  : "text-red-400"
+            }
           >
-            {props.speakerOn() ? "ON" : "OFF"}
+            {props.speakerOn() === undefined
+              ? "N/A"
+              : props.speakerOn()
+                ? "ON"
+                : "OFF"}
           </div>
         </div>
         <div class="bg-gray-900 border border-gray-700 rounded p-2">
@@ -58,17 +78,27 @@ export function DebugPanel(props: DebugPanelProps) {
         <div class="text-xs text-gray-500 mb-1">
           Pub Mic RMS:{" "}
           <span
-            class={props.pubRms() > 0.01 ? "text-green-400" : "text-red-400"}
+            class={
+              props.pubRms() === undefined
+                ? "text-gray-400"
+                : props.pubRms() > 0.01
+                  ? "text-green-400"
+                  : "text-red-400"
+            }
           >
-            {props.pubRms().toFixed(3)}
+            {props.pubRms()?.toFixed(3) ?? "N/A"}
           </span>
         </div>
         <div class="bg-gray-900 rounded h-4 overflow-hidden">
           <div
             class={`h-full transition-all duration-100 ${
-              props.pubRms() > 0.01 ? "bg-blue-500" : "bg-red-900/30"
+              props.pubRms() === undefined
+                ? "bg-gray-800"
+                : props.pubRms() > 0.01
+                  ? "bg-blue-500"
+                  : "bg-red-900/30"
             }`}
-            style={{ width: `${Math.min(props.pubRms() * 500, 100)}%` }}
+            style={{ width: `${Math.min((props.pubRms() ?? 0) * 500, 100)}%` }}
           />
         </div>
       </div>
@@ -77,17 +107,27 @@ export function DebugPanel(props: DebugPanelProps) {
         <div class="text-xs text-gray-500 mb-1">
           Sub Audio RMS:{" "}
           <span
-            class={props.subRms() > 0.01 ? "text-green-400" : "text-red-400"}
+            class={
+              props.subRms() === undefined
+                ? "text-gray-400"
+                : props.subRms() > 0.01
+                  ? "text-green-400"
+                  : "text-red-400"
+            }
           >
-            {props.subRms().toFixed(3)}
+            {props.subRms()?.toFixed(3) ?? "N/A"}
           </span>
         </div>
         <div class="bg-gray-900 rounded h-4 overflow-hidden">
           <div
             class={`h-full transition-all duration-100 ${
-              props.subRms() > 0.01 ? "bg-green-500" : "bg-red-900/30"
+              props.subRms() === undefined
+                ? "bg-gray-800"
+                : props.subRms() > 0.01
+                  ? "bg-green-500"
+                  : "bg-red-900/30"
             }`}
-            style={{ width: `${Math.min(props.subRms() * 500, 100)}%` }}
+            style={{ width: `${Math.min((props.subRms() ?? 0) * 500, 100)}%` }}
           />
         </div>
       </div>

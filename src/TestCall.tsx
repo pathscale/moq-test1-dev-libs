@@ -9,10 +9,6 @@ import {
 } from "solid-js";
 import { useParams } from "@solidjs/router";
 import * as Moq from "@moq/lite";
-import * as Publish from "@moq/publish";
-import * as Watch from "@moq/watch";
-import { Effect, Signal } from "@moq/signals";
-import solid from "@moq/signals/solid";
 import { createAccessor } from "@moq/signals/solid";
 
 import { DebugPanel } from "./DebugPanel";
@@ -20,16 +16,16 @@ import {
   diagTime,
   getOrCreateRelayUrl,
   getOrCreateStreamName,
-  joinUrl,
-  normalizePath,
   RELAY_OPTIONS,
+  normalizePath,
 } from "./helpers";
-import type { DiagEvent, RemoteParticipant } from "./types";
-import { VideoCanvas } from "./VideoCanvas";
+import type { DiagEvent } from "./types";
 import {
   WatchOverlayShowcase,
   WatchWebComponentShowcase,
 } from "./WatchShowcases";
+import "@moq/publish/element";
+import "@moq/publish/ui";
 
 function SectionCard(props: {
   title: string;
@@ -56,9 +52,7 @@ function SectionCard(props: {
           Enabled
         </label>
       </div>
-      <Show when={props.enabled()}>
-        {props.children}
-      </Show>
+      <Show when={props.enabled()}>{props.children}</Show>
     </section>
   );
 }
@@ -93,7 +87,6 @@ export const TestCall: Component = () => {
     window.location.reload();
   };
 
-
   const connection = new Moq.Connection.Reload({
     enabled: false,
     websocket: {
@@ -101,6 +94,7 @@ export const TestCall: Component = () => {
     },
   });
   const connectionStatus = createAccessor(connection.status);
+  const establishedConnection = createAccessor(connection.established);
   const broadcastId = crypto.randomUUID().slice(0, 8);
 
   const [joinConfig, setJoinConfig] = createSignal<{
@@ -109,362 +103,90 @@ export const TestCall: Component = () => {
   }>();
   const joinedRoomName = () => joinConfig()?.roomName ?? roomName();
   const joinedRelayUrl = () => joinConfig()?.relayUrl ?? relayUrl();
-  const joinedRelayPath = () => `anon/${joinedRoomName()}`;
-  const localPublishPath = () => `${joinedRelayPath()}/${broadcastId}`;
+
+  const getRoomPrefix = (name: string) => `anon/${name}`;
+  const getPublishName = (prefix: string) => `${prefix}/${broadcastId}`;
+
+  const joinedRelayPath = () => getRoomPrefix(joinedRoomName());
+  const localPublishPath = () => getPublishName(joinedRelayPath());
+
+  const [participants, setParticipants] = createSignal<string[]>([]);
 
   const resolvedWatchName = () => {
     const override = normalizePath(watchPathOverride());
     if (override) return override;
-    const remote = participants()[0]?.id;
+    const remote = participants()[0];
     return remote ?? localPublishPath();
   };
 
   const resolvedSectionRelayUrl = () => {
-    const relay = normalizePath(joinedRelayPath());
     try {
-      return joinUrl(joinedRelayUrl(), relay);
+      return new URL(joinedRelayUrl()).toString();
     } catch {
       return undefined;
     }
   };
 
-  const micEnabled = new Signal<boolean>(false);
-  const broadcastVideoEnabled = Signal.from(false);
-  const audioOutputEnabled = Signal.from(false);
-
-  const localVideoSource = new Publish.Source.Camera({
-    enabled: false,
-    constraints: {
-      width: { ideal: 640 },
-      height: { ideal: 640 },
-      frameRate: { ideal: 60 },
-      facingMode: { ideal: "user" },
-      resizeMode: "none",
-    },
-  });
-
-  const localAudioSource = new Publish.Source.Microphone({
-    enabled: micEnabled,
-    constraints: {
-      channelCount: { ideal: 1, max: 2 },
-      autoGainControl: { ideal: true },
-      noiseSuppression: { ideal: true },
-      echoCancellation: { ideal: true },
-    },
-  });
-
-  const localBroadcast = new Publish.Broadcast({
-    enabled: false,
-    connection: connection.established,
-    user: {
-      enabled: true,
-      name: Signal.from("User"),
-    },
-    video: {
-      source: localVideoSource.source,
-      hd: {
-        enabled: broadcastVideoEnabled,
-        config: { maxPixels: 640 * 640 },
-      },
-      sd: {
-        enabled: broadcastVideoEnabled,
-        config: { maxPixels: 320 * 320 },
-      },
-      flip: true,
-    },
-    audio: {
-      enabled: micEnabled,
-      volume: 1.0,
-      source: localAudioSource.source,
-    },
-    location: {
-      window: {
-        enabled: true,
-        handle: Math.random().toString(36).substring(2, 15),
-      },
-      peers: { enabled: true },
-    },
-    chat: { message: { enabled: true }, typing: { enabled: true } },
-    preview: {
-      enabled: true,
-      info: { chat: false, typing: false, screen: false },
-    },
-  });
-
-  const pubSignals = new Effect();
-  pubSignals.effect((eff) => {
-    const active = eff.get(localBroadcast.audio.active);
-    log("pub", `encoder active: ${active}`);
-  });
-  pubSignals.effect((eff) => {
-    const root = eff.get(localBroadcast.audio.root);
-    log("pub", `encoder root: ${root ? "connected" : "none"}`);
-  });
-  pubSignals.effect((eff) => {
-    const config = eff.get(localBroadcast.audio.config);
-    log("pub", `encoder config: ${config ? config.codec : "none"}`);
-  });
-
-  const localFrame = solid(localBroadcast.video.frame);
-
-  const [publishingVideo, setPublishingVideo] = createSignal(false);
-  const [publishingAudio, setPublishingAudio] = createSignal(false);
-  const [speakerOn, setSpeakerOn] = createSignal(false);
-
-  const toggleVideo = () => {
-    if (publishingVideo()) {
-      broadcastVideoEnabled.set(false);
-      setPublishingVideo(false);
-      log("track", "video OFF");
-    } else {
-      localVideoSource.enabled.set(true);
-      broadcastVideoEnabled.set(true);
-      setPublishingVideo(true);
-      log("track", "video ON");
-    }
+  const addParticipant = (path: string) => {
+    setParticipants((prev) => {
+      if (prev.includes(path)) return prev;
+      return [...prev, path];
+    });
   };
 
-  const toggleAudio = () => {
-    if (publishingAudio()) {
-      micEnabled.set(false);
-      setPublishingAudio(false);
-      log("track", "mic OFF");
-    } else {
-      micEnabled.set(true);
-      setPublishingAudio(true);
-      log("track", "mic ON");
-    }
+  const removeParticipant = (path: string) => {
+    setParticipants((prev) => prev.filter((participant) => participant !== path));
   };
 
-  const toggleSpeaker = () => {
-    const next = !speakerOn();
-    setSpeakerOn(next);
-    audioOutputEnabled.set(next);
-    log("track", `speaker ${next ? "ON" : "OFF"}`);
-  };
+  createEffect(() => {
+    const conn = establishedConnection();
+    if (!conn || !joinConfig()) return;
 
-  const [participants, setParticipants] = createSignal<RemoteParticipant[]>([]);
-  let announcedEffect: Effect | undefined;
-  let unloading = false;
+    const prefixText = joinedRelayPath();
+    const localPath = localPublishPath();
+    const prefix = Moq.Path.from(prefixText);
+    const announced = conn.announced(prefix);
+    let closed = false;
 
-  const getRoomPrefix = (name: string) => `anon/${name}`;
-  const getPublishName = (prefix: string) => `${prefix}/${broadcastId}`;
+    log("announced", `listening on prefix: ${prefixText}`);
 
-  const closeParticipant = (participant: RemoteParticipant) => {
-    participant.signals.close();
-    participant.sync.close();
-    participant.videoDecoder.close();
-    participant.videoSource.close();
-    participant.audioDecoder.close();
-    participant.audioSource.close();
-    participant.broadcast.close();
-  };
+    onCleanup(() => {
+      closed = true;
+      announced.close();
+    });
 
-  const removeParticipant = (pathString: string) => {
-    let removed: RemoteParticipant | undefined;
-
-    setParticipants((prev) =>
-      prev.filter((participant) => {
-        if (participant.id !== pathString) return true;
-        removed = participant;
-        return false;
-      }),
-    );
-
-    if (!removed) {
-      log("sub", `remove requested for unknown participant: ${pathString}`);
-      return;
-    }
-
-    closeParticipant(removed);
-    console.log("Participant removed:", pathString);
-    log("sub", `participant removed: ${pathString}`);
-  };
-
-  const runAnnounced = (streamPrefix: string) => {
-    if (announcedEffect) {
-      announcedEffect.close();
-    }
-    announcedEffect = new Effect();
-
-    announcedEffect.effect((effect) => {
-      const conn = effect.get(connection.established);
-      if (!conn) {
-        log("announced", "waiting for connection...");
-        return;
-      }
-      log("announced", "connection available, starting listener");
-
-      const prefix = Moq.Path.from(streamPrefix);
-      console.log("ANNOUNCE prefix:", String(prefix));
-      log("announced", `listening on prefix: ${String(prefix)}`);
-      const announced = conn.announced(prefix);
-      effect.cleanup(() => announced.close());
-
-      effect.spawn(async () => {
-        log("announced", "loop started");
-        try {
-          for (;;) {
-            const update = await announced.next();
-            if (!update) {
-              log("announced", "loop ended");
-              break;
-            }
-
-            const localPath = localBroadcast.name.peek();
-            console.log("Announced event:", update);
-            log(
-              "announced",
-              `event active=${update.active} path=${String(update.path)}`,
-            );
-            if (String(update.path) === String(localPath)) {
-              log("announced", `ignoring local broadcast: ${String(update.path)}`);
-              continue;
-            }
-
-            if (update.active) {
-              console.log("Announce active:", String(update.path));
-              log("announced", `REMOTE ACTIVE: ${update.path}`);
-              subscribeToParticipant(String(update.path));
-            } else {
-              console.log("Announce active:", false, String(update.path));
-              log("announced", `REMOTE INACTIVE: ${update.path}`);
-              removeParticipant(String(update.path));
-            }
+    void (async () => {
+      try {
+        for (;;) {
+          const update = await announced.next();
+          if (!update) {
+            log("announced", "loop ended");
+            break;
           }
-        } catch (err) {
-          log("announced", `ERROR: ${err}`);
+
+          const path = String(update.path);
+          log("announced", `event active=${update.active} path=${path}`);
+
+          if (path === localPath) {
+            log("announced", `ignoring local broadcast: ${path}`);
+            continue;
+          }
+
+          if (update.active) {
+            addParticipant(path);
+            log("announced", `remote active: ${path}`);
+          } else {
+            removeParticipant(path);
+            log("announced", `remote inactive: ${path}`);
+          }
         }
-      });
-    });
-  };
-
-  const subscribeToParticipant = (pathString: string) => {
-    if (participants().find((participant) => participant.id === pathString)) {
-      log("sub", `already tracking participant: ${pathString}`);
-      return;
-    }
-
-    const path = Moq.Path.from(pathString);
-    const broadcast = new Watch.Broadcast({
-      connection: connection.established,
-      enabled: true,
-      name: path,
-      reload: true,
-    });
-
-    const sync = new Watch.Sync();
-    const videoSource = new Watch.Video.Source(sync, { broadcast });
-    const videoDecoder = new Watch.Video.Decoder(videoSource, { enabled: true });
-    const audioSource = new Watch.Audio.Source(sync, { broadcast });
-    const audioDecoder = new Watch.Audio.Decoder(audioSource, { enabled: true });
-
-    const shortPath = pathString.slice(-20);
-    const signals = new Effect();
-
-    signals.effect((eff) => {
-      const status = eff.get(broadcast.status);
-      log("sub", `...${shortPath} status → ${status}`);
-    });
-    signals.effect((eff) => {
-      const audioCatalog = eff.get(audioSource.catalog);
-      if (audioCatalog) log("sub", `...${shortPath} audio catalog received`);
-    });
-    signals.effect((eff) => {
-      const videoCatalog = eff.get(videoSource.catalog);
-      log("video", `...${shortPath} video catalog: ${videoCatalog ? "received" : "none"}`);
-    });
-    signals.effect((eff) => {
-      const stalled = eff.get(videoDecoder.stalled);
-      log("video", `...${shortPath} video decoder stalled: ${stalled}`);
-    });
-    let videoFrameCount = 0;
-    signals.effect((eff) => {
-      const frame = eff.get(videoDecoder.frame);
-      if (!frame) return;
-      videoFrameCount++;
-      if (videoFrameCount === 1 || videoFrameCount % 100 === 0) {
-        log("video", `...${shortPath} video frame #${videoFrameCount} (${frame.displayWidth}x${frame.displayHeight})`);
+      } catch (error) {
+        if (!closed) {
+          log("announced", `ERROR: ${error}`);
+        }
       }
-    });
-    signals.effect((eff) => {
-      const root = eff.get(audioDecoder.root);
-      if (root) {
-        log(
-          "audio",
-          `...${shortPath} audio root available (ctx: ${root.context.state})`,
-        );
-      }
-    });
-    let lastLoggedBytes = 0;
-    signals.effect((eff) => {
-      const stats = eff.get(audioDecoder.stats);
-      if (!stats || stats.bytesReceived <= 0) return;
-      const bytes = stats.bytesReceived;
-      if (lastLoggedBytes === 0 || bytes - lastLoggedBytes >= 1024) {
-        log("audio", `...${shortPath} audio bytes: ${bytes}`);
-        lastLoggedBytes = bytes;
-      }
-    });
-
-    let participantGain: GainNode | undefined;
-    let participantAnalyser: AnalyserNode | undefined;
-
-    signals.effect((eff) => {
-      const root = eff.get(audioDecoder.root);
-      if (!root) return;
-
-      if (root.context.state === "suspended") {
-        (root.context as AudioContext).resume();
-        log("audio", "resuming suspended AudioContext");
-      }
-
-      const gain = new GainNode(root.context, { gain: 0 });
-      const analyser = new AnalyserNode(root.context, { fftSize: 2048 });
-      root.connect(gain);
-      gain.connect(analyser);
-      analyser.connect(root.context.destination);
-      participantGain = gain;
-      participantAnalyser = analyser;
-      log("audio", `wired gain+analyser for ...${shortPath}`);
-
-      eff.cleanup(() => {
-        analyser.disconnect();
-        gain.disconnect();
-        if (participantGain === gain) participantGain = undefined;
-        if (participantAnalyser === analyser) participantAnalyser = undefined;
-      });
-    });
-
-    signals.effect((eff) => {
-      const speaker = eff.get(audioOutputEnabled);
-      if (participantGain) {
-        participantGain.gain.value = speaker ? 1.0 : 0.0;
-        log("audio", `...${shortPath} gain → ${speaker ? 1 : 0}`);
-      }
-    });
-
-    videoSource.target.set({ pixels: 640 * 640 });
-
-    const getAnalyser = () => participantAnalyser;
-
-    setParticipants((prev) => [
-      ...prev,
-      {
-        id: pathString,
-        broadcast,
-        sync,
-        videoSource,
-        videoDecoder,
-        audioSource,
-        audioDecoder,
-        signals,
-        getAnalyser,
-      },
-    ]);
-
-    log("sub", `subscribed to ${pathString}`);
-  };
+    })();
+  });
 
   const [joined, setJoined] = createSignal(false);
   const [joining, setJoining] = createSignal(false);
@@ -483,131 +205,52 @@ export const TestCall: Component = () => {
       return;
     }
 
-    const relayPath = getRoomPrefix(currentRoomName);
-    const publishName = getPublishName(relayPath);
     let url: URL;
     try {
-      url = new URL(joinUrl(currentRelayUrl, relayPath));
+      url = new URL(currentRelayUrl);
     } catch {
       log("conn", "invalid relay URL");
       setJoining(false);
       return;
     }
 
+    const relayPath = getRoomPrefix(currentRoomName);
+    const publishName = getPublishName(relayPath);
+
+    setParticipants([]);
     setJoinConfig({ relayUrl: currentRelayUrl, roomName: currentRoomName });
     connection.url.set(url);
     connection.enabled.set(true);
 
-    console.log("JOIN publish name:", publishName);
-    console.log("JOIN broadcast ID:", broadcastId);
-    console.log("JOIN room prefix:", relayPath);
-    console.log("JOIN final stream name:", publishName);
     log("conn", `join room prefix: ${relayPath}`);
     log("conn", `join publish name: ${publishName}`);
+    log("conn", "connection enabled");
 
-    localBroadcast.name.set(Moq.Path.from(publishName));
-    log("announced", `announce requested: ${publishName}`);
-    localBroadcast.enabled.set(true);
-
-    log("conn", "connection + broadcast enabled");
     setJoined(true);
     setJoining(false);
-
-    runAnnounced(relayPath);
   };
 
   const handleLeave = () => {
-    if (announcedEffect) {
-      announcedEffect.close();
-      announcedEffect = undefined;
-    }
-
-    broadcastVideoEnabled.set(false);
-    micEnabled.set(false);
-    localVideoSource.enabled.set(false);
-    setPublishingVideo(false);
-    setPublishingAudio(false);
-
-    log("conn", "teardown local broadcast");
-    localBroadcast.enabled.set(false);
-    localBroadcast.name.set(undefined);
     connection.url.set(undefined);
     connection.enabled.set(false);
-
-    for (const participant of participants()) {
-      closeParticipant(participant);
-    }
     setParticipants([]);
-
     setJoinConfig(undefined);
     setJoined(false);
     log("conn", "disconnected");
   };
 
-  onCleanup(() => {
-    handleLeave();
-    pubSignals.close();
-    localVideoSource.close();
-    localAudioSource.close();
-    localBroadcast.close();
-    connection.close();
-  });
-
   const handleBeforeUnload = () => {
-    unloading = true;
     log("conn", "beforeunload -> leave");
     handleLeave();
   };
 
   window.addEventListener("beforeunload", handleBeforeUnload);
+
   onCleanup(() => {
-    if (unloading) return;
     window.removeEventListener("beforeunload", handleBeforeUnload);
+    handleLeave();
+    connection.close();
   });
-
-  const [pubRms, setPubRms] = createSignal(0);
-  let pubAnalyser: AnalyserNode | undefined;
-
-  const pubAudioRoot = createAccessor(localBroadcast.audio.root);
-  createEffect(() => {
-    const root = pubAudioRoot();
-    if (!root) return;
-    pubAnalyser = new AnalyserNode(root.context, { fftSize: 2048 });
-    root.connect(pubAnalyser);
-    onCleanup(() => {
-      pubAnalyser?.disconnect();
-      pubAnalyser = undefined;
-    });
-  });
-
-  const [subRms, setSubRms] = createSignal(0);
-  const rmsBuf = new Uint8Array(1024);
-
-  function computeRms(analyser: AnalyserNode): number {
-    analyser.getByteTimeDomainData(rmsBuf);
-    let sum = 0;
-    for (let i = 0; i < rmsBuf.length; i++) {
-      const sample = (rmsBuf[i]! - 128) / 128;
-      sum += sample * sample;
-    }
-    return Math.round(Math.sqrt(sum / rmsBuf.length) * 1000) / 1000;
-  }
-
-  const rmsInterval = setInterval(() => {
-    if (pubAnalyser) {
-      setPubRms(computeRms(pubAnalyser));
-    }
-    let maxRms = 0;
-    for (const participant of participants()) {
-      const analyser = participant.getAnalyser();
-      if (analyser) {
-        const rms = computeRms(analyser);
-        if (rms > maxRms) maxRms = rms;
-      }
-    }
-    setSubRms(maxRms);
-  }, 100);
-  onCleanup(() => clearInterval(rmsInterval));
 
   return (
     <div class="min-h-screen bg-gray-950 p-6 text-white">
@@ -615,9 +258,8 @@ export const TestCall: Component = () => {
         <div class="space-y-2">
           <h1 class="text-3xl font-bold">MoQ Watch Comparison Harness</h1>
           <p class="max-w-3xl text-sm text-gray-400">
-            Side-by-side comparisons for the existing JS API flow, the
-            <code> @moq/watch </code>
-            web component, and the Solid-powered overlay.
+            Side-by-side comparisons for the official MoQ publish and watch web
+            components inside the existing test harness.
           </p>
         </div>
 
@@ -645,11 +287,7 @@ export const TestCall: Component = () => {
                 class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
               >
                 <For each={RELAY_OPTIONS}>
-                  {(relay) => (
-                    <option value={relay.url}>
-                      {relay.url}
-                    </option>
-                  )}
+                  {(relay) => <option value={relay.url}>{relay.name}</option>}
                 </For>
               </select>
             </div>
@@ -681,19 +319,19 @@ export const TestCall: Component = () => {
             />
             <p class="text-xs text-gray-500">
               If empty, Sections B and C watch the first discovered remote
-              participant, or the current JS API local publish path.
+              participant, or the current local publish path.
             </p>
           </div>
 
           <div class="grid gap-3 text-xs text-gray-400 md:grid-cols-2">
             <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
-              <div class="text-gray-500">Resolved relay URL for Sections B/C</div>
+              <div class="text-gray-500">Resolved relay URL</div>
               <div class="break-all pt-1 text-gray-200">
                 {resolvedSectionRelayUrl() || "invalid relay URL"}
               </div>
             </div>
             <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
-              <div class="text-gray-500">Resolved watch name for Sections B/C</div>
+              <div class="text-gray-500">Resolved watch name</div>
               <div class="break-all pt-1 text-gray-200">
                 {resolvedWatchName()}
               </div>
@@ -702,8 +340,8 @@ export const TestCall: Component = () => {
         </section>
 
         <SectionCard
-          title="Section A -> JS API"
-          subtitle="Existing manual publish / announce / subscribe flow kept intact for comparison."
+          title="Section A -> Web Component Publish"
+          subtitle="Official <moq-publish> mounted in the existing join-driven harness."
           enabled={showJsApi}
           setEnabled={setShowJsApi}
         >
@@ -725,36 +363,6 @@ export const TestCall: Component = () => {
             <div class="space-y-4">
               <div class="flex flex-wrap items-center gap-2">
                 <button
-                  class={`rounded px-4 py-2 text-sm font-medium ${
-                    publishingAudio()
-                      ? "bg-green-600 hover:bg-green-700"
-                      : "bg-gray-700 hover:bg-gray-600"
-                  }`}
-                  onClick={toggleAudio}
-                >
-                  Mic
-                </button>
-                <button
-                  class={`rounded px-4 py-2 text-sm font-medium ${
-                    publishingVideo()
-                      ? "bg-green-600 hover:bg-green-700"
-                      : "bg-gray-700 hover:bg-gray-600"
-                  }`}
-                  onClick={toggleVideo}
-                >
-                  Cam
-                </button>
-                <button
-                  class={`rounded px-4 py-2 text-sm font-medium ${
-                    speakerOn()
-                      ? "bg-green-600 hover:bg-green-700"
-                      : "bg-gray-700 hover:bg-gray-600"
-                  }`}
-                  onClick={toggleSpeaker}
-                >
-                  Spkr
-                </button>
-                <button
                   class="rounded bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-700"
                   onClick={handleLeave}
                 >
@@ -772,53 +380,33 @@ export const TestCall: Component = () => {
                 <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
                   <div class="text-gray-500">Local publish path</div>
                   <div class="break-all pt-1 text-gray-200">
-                    {String(localBroadcast.name.peek() || localPublishPath())}
+                    {localPublishPath()}
                   </div>
                 </div>
               </div>
 
-              <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div class="relative aspect-video overflow-hidden rounded-md bg-gray-800">
-                  <Show
-                    when={publishingVideo()}
-                    fallback={
-                      <div class="flex h-full items-center justify-center text-gray-500">
-                        Video Paused
-                      </div>
-                    }
+              <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
+                <moq-publish-ui class="block">
+                  <moq-publish
+                    url={resolvedSectionRelayUrl()}
+                    name={localPublishPath()}
+                    class="block min-h-64 w-full"
                   >
-                    <VideoCanvas frame={localFrame} flip />
-                  </Show>
-                  <div class="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
-                    You
-                  </div>
-                </div>
-
-                <For each={participants()}>
-                  {(participant) => {
-                    const remoteFrame = solid(participant.videoDecoder.frame);
-                    return (
-                      <div class="relative aspect-video overflow-hidden rounded-md bg-gray-800">
-                        <VideoCanvas frame={remoteFrame} />
-                        <div class="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
-                          Participant
-                        </div>
-                      </div>
-                    );
-                  }}
-                </For>
+                    <video muted autoplay class="h-full w-full bg-black" />
+                  </moq-publish>
+                </moq-publish-ui>
               </div>
 
               <DebugPanel
                 connectionStatus={connectionStatus}
                 roomName={joinedRoomName}
-                publishingAudio={publishingAudio}
-                speakerOn={speakerOn}
+                publishingAudio={() => undefined}
+                speakerOn={() => undefined}
                 participantCount={() =>
                   participants().length + (joined() ? 1 : 0)
                 }
-                pubRms={pubRms}
-                subRms={subRms}
+                pubRms={() => undefined}
+                subRms={() => undefined}
                 diagLog={diagLog}
               />
             </div>
@@ -827,7 +415,7 @@ export const TestCall: Component = () => {
 
         <SectionCard
           title="Section B -> Web Component"
-          subtitle="Official bare <moq-watch> element with only relay URL + name wiring."
+          subtitle="Official bare <moq-watch> element with relay URL + watch target wiring."
           enabled={showWebComponent}
           setEnabled={setShowWebComponent}
         >
