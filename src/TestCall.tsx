@@ -5,21 +5,12 @@ import {
   Show,
   createEffect,
   createSignal,
-  onCleanup,
 } from "solid-js";
-import { useParams } from "@solidjs/router";
 import * as Moq from "@moq/lite";
-import { createAccessor } from "@moq/signals/solid";
 
 import { DebugPanel } from "./DebugPanel";
-import {
-  diagTime,
-  getOrCreateRelayUrl,
-  getOrCreateStreamName,
-  RELAY_OPTIONS,
-  normalizePath,
-} from "./helpers";
-import type { DiagEvent } from "./types";
+import { RELAY_OPTIONS } from "./helpers";
+import { useTestSession } from "./hooks/useTestSession";
 import {
   WatchOverlayShowcase,
   WatchWebComponentShowcase,
@@ -64,212 +55,18 @@ function SectionCard(props: {
 }
 
 export const TestCall: Component = () => {
-  const [diagLog, setDiagLog] = createSignal<DiagEvent[]>([]);
-  const log = (tag: string, msg: string) => {
-    const evt = { t: diagTime(), tag, msg };
-    console.log(`[${evt.t}ms] [${tag}] ${msg}`);
-    setDiagLog((prev) => [evt, ...prev].slice(0, 50));
-  };
-
-  const params = useParams<{ streamName?: string }>();
-  const urlStream = () =>
-    params.streamName?.toLowerCase().replace(/[^a-z0-9-]/g, "");
-
-  const [roomName, setRoomName] = createSignal(
-    urlStream() || getOrCreateStreamName(),
-  );
-  const [relayUrl, setRelayUrl] = createSignal(getOrCreateRelayUrl());
-  const [watchPathOverride, setWatchPathOverride] = createSignal("");
-
-  const handleNameChange = (value: string) => {
-    const clean = value.toLowerCase().replace(/[^a-z0-9-]/g, "");
-    setRoomName(clean);
-    localStorage.setItem("moq-test-stream-name", clean);
-  };
-
-  const handleRelayUrlChange = (value: string) => {
-    setRelayUrl(value);
-    localStorage.setItem("moq-relay-url", value);
-    window.location.reload();
-  };
-
-  const connection = new Moq.Connection.Reload({
-    enabled: false,
-    websocket: {
-      enabled: false,
-    },
-  });
-  const connectionStatus = createAccessor(connection.status);
-  const establishedConnection = createAccessor(connection.established);
-  const broadcastId = crypto.randomUUID().slice(0, 8);
-  let publishElement: MoqElement | undefined;
-
-  const [joinConfig, setJoinConfig] = createSignal<{
-    relayUrl: string;
-    roomName: string;
-  }>();
-  const joinedRoomName = () => joinConfig()?.roomName ?? roomName();
-  const joinedRelayUrl = () => joinConfig()?.relayUrl ?? relayUrl();
-
-  const getRoomPrefix = (name: string) => `anon/${name}`;
-  const getPublishName = (prefix: string) => `${prefix}/${broadcastId}`;
-
-  const joinedRelayPath = () => getRoomPrefix(joinedRoomName());
-  const localPublishPath = () => getPublishName(joinedRelayPath());
-
-  const [participants, setParticipants] = createSignal<string[]>([]);
-
-  const resolvedWatchName = () => {
-    const override = normalizePath(watchPathOverride());
-    if (override) return override;
-    const remote = participants()[0];
-    return remote ?? localPublishPath();
-  };
-
-  const resolvedSectionRelayUrl = () => {
-    try {
-      return new URL(joinedRelayUrl()).toString();
-    } catch {
-      return undefined;
-    }
-  };
-
-  const addParticipant = (path: string) => {
-    setParticipants((prev) => {
-      if (prev.includes(path)) return prev;
-      return [...prev, path];
-    });
-  };
-
-  const removeParticipant = (path: string) => {
-    setParticipants((prev) => prev.filter((participant) => participant !== path));
-  };
-
-  createEffect(() => {
-    const conn = establishedConnection();
-    if (!conn || !joinConfig()) return;
-
-    const prefixText = joinedRelayPath();
-    const localPath = localPublishPath();
-    const prefix = Moq.Path.from(prefixText);
-    const announced = conn.announced(prefix);
-    let closed = false;
-
-    log("announced", `listening on prefix: ${prefixText}`);
-
-    onCleanup(() => {
-      closed = true;
-      announced.close();
-    });
-
-    void (async () => {
-      try {
-        for (;;) {
-          const update = await announced.next();
-          if (!update) {
-            log("announced", "loop ended");
-            break;
-          }
-
-          const path = String(update.path);
-          log("announced", `event active=${update.active} path=${path}`);
-
-          if (path === localPath) {
-            log("announced", `ignoring local broadcast: ${path}`);
-            continue;
-          }
-
-          if (update.active) {
-            addParticipant(path);
-            log("announced", `remote active: ${path}`);
-          } else {
-            removeParticipant(path);
-            log("announced", `remote inactive: ${path}`);
-          }
-        }
-      } catch (error) {
-        if (!closed) {
-          log("announced", `ERROR: ${error}`);
-        }
-      }
-    })();
-  });
-
-  const [joined, setJoined] = createSignal(false);
-  const [joining, setJoining] = createSignal(false);
+  const session = useTestSession();
   const [showJsApi, setShowJsApi] = createSignal(true);
   const [showWebComponent, setShowWebComponent] = createSignal(true);
   const [showSolidOverlay, setShowSolidOverlay] = createSignal(true);
-
-  const handleJoin = () => {
-    setJoining(true);
-
-    const currentRelayUrl = relayUrl().trim();
-    const currentRoomName = roomName().trim();
-    if (!currentRelayUrl || !currentRoomName) {
-      log("conn", "relay URL and room are required");
-      setJoining(false);
-      return;
-    }
-
-    let url: URL;
-    try {
-      url = new URL(currentRelayUrl);
-    } catch {
-      log("conn", "invalid relay URL");
-      setJoining(false);
-      return;
-    }
-    if (url.protocol !== "https:") {
-      log("conn", "relay URL must use https:// for WebTransport");
-      setJoining(false);
-      return;
-    }
-
-    const relayPath = getRoomPrefix(currentRoomName);
-    const publishName = getPublishName(relayPath);
-
-    setParticipants([]);
-    setJoinConfig({ relayUrl: currentRelayUrl, roomName: currentRoomName });
-    connection.url.set(url);
-    connection.enabled.set(true);
-
-    log("conn", `join room prefix: ${relayPath}`);
-    log("conn", `join publish name: ${publishName}`);
-    log("conn", "connection enabled");
-
-    setJoined(true);
-    setJoining(false);
-  };
-
-  const handleLeave = () => {
-    connection.url.set(undefined);
-    connection.enabled.set(false);
-    setParticipants([]);
-    setJoinConfig(undefined);
-    setJoined(false);
-    log("conn", "disconnected");
-  };
-
-  const handleBeforeUnload = () => {
-    log("conn", "beforeunload -> leave");
-    handleLeave();
-  };
-
-  window.addEventListener("beforeunload", handleBeforeUnload);
-
-  onCleanup(() => {
-    window.removeEventListener("beforeunload", handleBeforeUnload);
-    handleLeave();
-    connection.close();
-  });
+  let publishElement: MoqElement | undefined;
 
   createEffect(() => {
     const element = publishElement;
     if (!element) return;
     element.connection.websocket = { enabled: false };
-    element.url = resolvedSectionRelayUrl();
-    element.name = localPublishPath();
+    element.url = session.resolvedSectionRelayUrl();
+    element.name = session.localPublishPath();
   });
 
   return (
@@ -300,9 +97,9 @@ export const TestCall: Component = () => {
                 Relay URL
               </label>
               <select
-                value={relayUrl()}
+                value={session.relayUrl()}
                 onChange={(event) =>
-                  handleRelayUrlChange(event.currentTarget.value)
+                  session.handleRelayUrlChange(event.currentTarget.value)
                 }
                 class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
               >
@@ -318,8 +115,10 @@ export const TestCall: Component = () => {
               </label>
               <input
                 type="text"
-                value={roomName()}
-                onInput={(event) => handleNameChange(event.currentTarget.value)}
+                value={session.roomName()}
+                onInput={(event) =>
+                  session.handleNameChange(event.currentTarget.value)
+                }
                 class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                 placeholder="my-room"
               />
@@ -332,8 +131,10 @@ export const TestCall: Component = () => {
             </label>
             <input
               type="text"
-              value={watchPathOverride()}
-              onInput={(event) => setWatchPathOverride(event.currentTarget.value)}
+              value={session.watchPathOverride()}
+              onInput={(event) =>
+                session.setWatchPathOverride(event.currentTarget.value)
+              }
               class="w-full rounded border border-gray-700 bg-gray-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
               placeholder="Optional: anon/my-room/participant-id"
             />
@@ -347,13 +148,13 @@ export const TestCall: Component = () => {
             <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
               <div class="text-gray-500">Resolved relay URL</div>
               <div class="break-all pt-1 text-gray-200">
-                {resolvedSectionRelayUrl() || "invalid relay URL"}
+                {session.resolvedSectionRelayUrl() || "invalid relay URL"}
               </div>
             </div>
             <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
               <div class="text-gray-500">Resolved watch name</div>
               <div class="break-all pt-1 text-gray-200">
-                {resolvedWatchName()}
+                {session.resolvedWatchName()}
               </div>
             </div>
           </div>
@@ -366,17 +167,17 @@ export const TestCall: Component = () => {
           setEnabled={setShowJsApi}
         >
           <Show
-            when={joined()}
+            when={session.joined()}
             fallback={
               <button
                 class="flex items-center gap-2 rounded bg-blue-600 px-4 py-2 font-medium hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={handleJoin}
-                disabled={joining()}
+                onClick={session.handleJoin}
+                disabled={session.joining()}
               >
-                <Show when={joining()}>
+                <Show when={session.joining()}>
                   <span class="loading loading-spinner loading-sm" />
                 </Show>
-                {joining() ? "Connecting..." : "Join"}
+                {session.joining() ? "Connecting..." : "Join"}
               </button>
             }
           >
@@ -384,7 +185,7 @@ export const TestCall: Component = () => {
               <div class="flex flex-wrap items-center gap-2">
                 <button
                   class="rounded bg-red-600 px-4 py-2 text-sm font-medium hover:bg-red-700"
-                  onClick={handleLeave}
+                  onClick={session.handleLeave}
                 >
                   Leave
                 </button>
@@ -394,13 +195,13 @@ export const TestCall: Component = () => {
                 <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
                   <div class="text-gray-500">Active room path</div>
                   <div class="break-all pt-1 text-gray-200">
-                    {joinedRelayPath()}
+                    {session.joinedRelayPath()}
                   </div>
                 </div>
                 <div class="rounded border border-gray-800 bg-gray-950/70 p-3">
                   <div class="text-gray-500">Local publish path</div>
                   <div class="break-all pt-1 text-gray-200">
-                    {localPublishPath()}
+                    {session.localPublishPath()}
                   </div>
                 </div>
               </div>
@@ -419,16 +220,16 @@ export const TestCall: Component = () => {
               </div>
 
               <DebugPanel
-                connectionStatus={connectionStatus}
-                roomName={joinedRoomName}
+                connectionStatus={session.connectionStatus}
+                roomName={session.joinedRoomName}
                 publishingAudio={() => undefined}
                 speakerOn={() => undefined}
                 participantCount={() =>
-                  participants().length + (joined() ? 1 : 0)
+                  session.participants().length + (session.joined() ? 1 : 0)
                 }
                 pubRms={() => undefined}
                 subRms={() => undefined}
-                diagLog={diagLog}
+                diagLog={session.diagLog}
               />
             </div>
           </Show>
@@ -441,9 +242,9 @@ export const TestCall: Component = () => {
           setEnabled={setShowWebComponent}
         >
           <WatchWebComponentShowcase
-            enabled={joined}
-            relayUrl={resolvedSectionRelayUrl}
-            watchName={resolvedWatchName}
+            enabled={session.joined}
+            relayUrl={session.resolvedSectionRelayUrl}
+            watchName={session.resolvedWatchName}
           />
         </SectionCard>
 
@@ -454,9 +255,9 @@ export const TestCall: Component = () => {
           setEnabled={setShowSolidOverlay}
         >
           <WatchOverlayShowcase
-            enabled={joined}
-            relayUrl={resolvedSectionRelayUrl}
-            watchName={resolvedWatchName}
+            enabled={session.joined}
+            relayUrl={session.resolvedSectionRelayUrl}
+            watchName={session.resolvedWatchName}
           />
         </SectionCard>
       </div>
