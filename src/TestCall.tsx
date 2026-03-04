@@ -27,6 +27,12 @@ import {
 import "@moq/publish/element";
 import "@moq/publish/ui";
 
+type MoqElement = HTMLElement & {
+  connection: Moq.Connection.Reload;
+  url: string | URL | undefined;
+  name: string | undefined;
+};
+
 function SectionCard(props: {
   title: string;
   subtitle: string;
@@ -96,6 +102,7 @@ export const TestCall: Component = () => {
   const connectionStatus = createAccessor(connection.status);
   const establishedConnection = createAccessor(connection.established);
   const broadcastId = crypto.randomUUID().slice(0, 8);
+  let publishElement: MoqElement | undefined;
 
   const [joinConfig, setJoinConfig] = createSignal<{
     relayUrl: string;
@@ -213,6 +220,11 @@ export const TestCall: Component = () => {
       setJoining(false);
       return;
     }
+    if (url.protocol !== "https:") {
+      log("conn", "relay URL must use https:// for WebTransport");
+      setJoining(false);
+      return;
+    }
 
     const relayPath = getRoomPrefix(currentRoomName);
     const publishName = getPublishName(relayPath);
@@ -250,6 +262,14 @@ export const TestCall: Component = () => {
     window.removeEventListener("beforeunload", handleBeforeUnload);
     handleLeave();
     connection.close();
+  });
+
+  createEffect(() => {
+    const element = publishElement;
+    if (!element) return;
+    element.connection.websocket = { enabled: false };
+    element.url = resolvedSectionRelayUrl();
+    element.name = localPublishPath();
   });
 
   return (
@@ -388,8 +408,9 @@ export const TestCall: Component = () => {
               <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
                 <moq-publish-ui class="block">
                   <moq-publish
-                    url={resolvedSectionRelayUrl()}
-                    name={localPublishPath()}
+                    ref={(element) => {
+                      publishElement = element as MoqElement;
+                    }}
                     class="block min-h-64 w-full"
                   >
                     <video muted autoplay class="h-full w-full bg-black" />

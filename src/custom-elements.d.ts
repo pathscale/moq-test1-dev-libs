@@ -9,6 +9,7 @@ declare module "solid-js" {
         muted?: boolean;
         invisible?: boolean;
         source?: string;
+        ref?: (element: HTMLElement) => void;
         class?: string;
         style?: string | JSX.CSSProperties;
         children?: JSX.Element;
@@ -26,6 +27,7 @@ declare module "solid-js" {
         volume?: number | string;
         reload?: boolean;
         jitter?: number | string;
+        ref?: (element: HTMLElement) => void;
         class?: string;
         style?: string | JSX.CSSProperties;
         children?: JSX.Element;

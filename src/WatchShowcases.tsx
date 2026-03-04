@@ -1,4 +1,5 @@
-import { Accessor, Show } from "solid-js";
+import { Accessor, Show, createEffect } from "solid-js";
+import type * as Moq from "@moq/lite";
 import "@moq/watch/element";
 import "@moq/watch/ui";
 
@@ -7,6 +8,12 @@ interface SharedWatchProps {
   watchName: Accessor<string | undefined>;
   enabled: Accessor<boolean>; 
 }
+
+type MoqWatchElement = HTMLElement & {
+  connection: Moq.Connection.Reload;
+  url: string | URL | undefined;
+  name: string | undefined;
+};
 
 function BlackPlaceholder() {
   return (
@@ -30,6 +37,29 @@ function WatchTargetSummary(props: SharedWatchProps) {
   );
 }
 
+function ConfiguredMoqWatch(props: SharedWatchProps) {
+  let watchElement: MoqWatchElement | undefined;
+
+  createEffect(() => {
+    const element = watchElement;
+    if (!element) return;
+    element.connection.websocket = { enabled: false };
+    element.url = props.relayUrl();
+    element.name = props.watchName();
+  });
+
+  return (
+    <moq-watch
+      ref={(element) => {
+        watchElement = element as MoqWatchElement;
+      }}
+      class="block min-h-64 w-full"
+    >
+      <canvas class="h-full w-full bg-black" />
+    </moq-watch>
+  );
+}
+
 export function WatchWebComponentShowcase(props: SharedWatchProps) {
   return (
     <div class="space-y-3">
@@ -42,13 +72,7 @@ export function WatchWebComponentShowcase(props: SharedWatchProps) {
         fallback={<BlackPlaceholder />} 
       >
         <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
-          <moq-watch
-            url={props.relayUrl()}
-            name={props.watchName()}
-            class="block min-h-64 w-full"
-          >
-            <canvas class="h-full w-full bg-black" />
-          </moq-watch>
+          <ConfiguredMoqWatch {...props} />
         </div>
       </Show>
     </div>
@@ -68,13 +92,7 @@ export function WatchOverlayShowcase(props: SharedWatchProps) {
       >
         <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
           <moq-watch-ui class="block">
-            <moq-watch
-              url={props.relayUrl()}
-              name={props.watchName()}
-              class="block min-h-64 w-full"
-            >
-              <canvas class="h-full w-full bg-black" />
-            </moq-watch>
+            <ConfiguredMoqWatch {...props} />
           </moq-watch-ui>
         </div>
       </Show>
