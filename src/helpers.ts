@@ -7,6 +7,10 @@ export type RelayOption = {
 
 export const RELAY_OPTIONS: RelayOption[] = [
   {
+    name: "localhost",
+    url: "http://localhost:4443",
+  },
+  {
     name: "moq relay nofilter",
     url: "https://moq-relay.nofilter.io/",
   },
