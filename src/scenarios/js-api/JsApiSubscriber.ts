@@ -133,7 +133,12 @@ export function createJsApiSubscriber(props: {
         props.log("audio", "resuming suspended AudioContext");
       }
 
-      const gain = new GainNode(root.context, { gain: 0 });
+      // [FIX Audio Silence] Sync volume upon creation:
+      // Prevent the bug where clicking "Spkr On" BEFORE the remote peer is connected
+      // results in the GainNode defaulting to 0 volume and missing the toggle event.
+      // We explicitly peek the current speaker status to set the correct initial volume.
+      const isSpeakerOn = audioOutputEnabled.peek();
+      const gain = new GainNode(root.context, { gain: isSpeakerOn ? 1.0 : 0.0 });
       const analyser = new AnalyserNode(root.context, { fftSize: 2048 });
       root.connect(gain);
       gain.connect(analyser);

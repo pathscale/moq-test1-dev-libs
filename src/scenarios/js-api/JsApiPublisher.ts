@@ -190,27 +190,60 @@ export function createJsApiPublisher(log: LogFn) {
 
   const toggleVideo = () => {
     if (publishingVideo()) {
-      broadcastVideoEnabled.set(false);
+      const track = localVideoSource.source.peek();
+      if (track) {
+        // [FIX Video Freeze] "Soft Mute" Pattern:
+        // We only mute the actual camera stream instead of stopping the MoQ broadcast.
+        // This ensures the pipeline (Encoder -> Relay -> Subscriber Decoder) stays alive
+        // and keeps transmitting "black frames" with minimal bandwidth.
+        // If we stop the broadcast entirely, turning it back on might send P-frames
+        // without a preceding Keyframe, causing the subscriber's decoder to stall silently.
+        track.enabled = false;
+      }
       setPublishingVideo(false);
-      log("track", "video OFF");
+      log("track", "video OFF (soft mute)");
       return;
     }
 
     localVideoSource.enabled.set(true);
+    // Keep the broadcast pipeline always ON to maintain stream continuity
     broadcastVideoEnabled.set(true);
+
+    const track = localVideoSource.source.peek();
+    if (track) {
+      // Re-enable the hardware camera stream to feed real frames back into the active encoder
+      track.enabled = true;
+    }
+
     setPublishingVideo(true);
     log("track", "video ON");
   };
 
   const toggleAudio = () => {
     if (publishingAudio()) {
-      micEnabled.set(false);
+      const track = localAudioSource.source.peek();
+      if (track) {
+        // [FIX Audio Silence] "Soft Mute" Pattern:
+        // By disabling the track instead of stopping `micEnabled`, we keep 
+        // the MoQ Audio Broadcast active and connected to the server.
+        // It simply stops transmitting audio packets (acting as dead silence) 
+        // instead of tearing down the pipeline, avoiding connection desyncs.
+        track.enabled = false;
+      }
       setPublishingAudio(false);
-      log("track", "mic OFF");
+      log("track", "mic OFF (soft mute)");
       return;
     }
 
+    // Keep the broadcast pipeline fundamentally enabled at all times
     micEnabled.set(true);
+
+    const track = localAudioSource.source.peek();
+    if (track) {
+      // Re-enable the hardware microphone to feed active audio chunks back to MoQ
+      track.enabled = true;
+    }
+
     setPublishingAudio(true);
     log("track", "mic ON");
   };
