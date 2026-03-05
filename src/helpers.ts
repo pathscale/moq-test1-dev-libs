@@ -7,28 +7,8 @@ export type RelayOption = {
 
 export const RELAY_OPTIONS: RelayOption[] = [
   {
-    name: "moq-dev",
-    url: "https://moqrelay2.sylvan-b.com/",
-  },
-  {
-    name: "moxygen",
-    url: "https://moxyrelay.sylvan-b.com/",
-  },
-  {
-    name: "moqtail",
-    url: "https://moqtail1.sylvan-b.com/",
-  },
-  {
-    name: "hk.nofilter.io",
-    url: "https://hk.nofilter.io",
-  },
-  {
-    name: "usc.cdn.moq.dev",
-    url: "https://usc.cdn.moq.dev",
-  },
-  {
-    name: "localhost",
-    url: "http://localhost:4443",
+    name: "moq relay nofilter",
+    url: "https://moq-relay.nofilter.io/",
   },
 ];
 
