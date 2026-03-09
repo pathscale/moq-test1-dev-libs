@@ -25,10 +25,10 @@ export function WebComponentsPage() {
   const [showJsApi, setShowJsApi] = createSignal(true);
   const [showWebComponent, setShowWebComponent] = createSignal(true);
   const [showSolidOverlay, setShowSolidOverlay] = createSignal(true);
-  let publishElement: MoqElement | undefined;
+  const [publishElement, setPublishElement] = createSignal<MoqElement | undefined>();
 
   createEffect(() => {
-    const element = publishElement;
+    const element = publishElement();
     if (!element) return;
     applyTransportPolicy(element.connection);
     element.url = session.resolvedSectionRelayUrl();
@@ -78,9 +78,7 @@ export function WebComponentsPage() {
             <div class="overflow-hidden rounded-md border border-gray-800 bg-black">
               <moq-publish-ui class="block">
                 <moq-publish
-                  ref={(element) => {
-                    publishElement = element as MoqElement;
-                  }}
+                  ref={(el) => setPublishElement(el as MoqElement)}
                   class="block min-h-64 w-full"
                 >
                   <video muted autoplay class="h-full w-full bg-black" />

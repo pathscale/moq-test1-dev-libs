@@ -1,7 +1,7 @@
 import solid from "@moq/signals/solid";
 import { For, Show, createEffect, onCleanup } from "solid-js";
 
-import { joinUrl, normalizePath } from "../helpers";
+import { normalizePath } from "../helpers";
 import { useTestSession } from "../hooks/useTestSession";
 import { VideoCanvas } from "../VideoCanvas";
 import {
@@ -32,11 +32,7 @@ export function JsApiPage() {
       return;
     }
 
-    const relayUrl = joinUrl(
-      session.joinedRelayUrl(),
-      session.joinedRelayPath(),
-    );
-    publisher.start(relayUrl, session.localPublishPath());
+    publisher.start(session.joinedRelayUrl(), session.localPublishPath());
   });
 
   createEffect(() => {

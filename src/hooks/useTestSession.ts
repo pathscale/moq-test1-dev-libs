@@ -60,6 +60,17 @@ export function useTestSession() {
 
   const joinedRoomName = () => joinConfig()?.roomName ?? roomName();
   const joinedRelayUrl = () => joinConfig()?.relayUrl ?? relayUrl();
+
+  /**
+   * URL / path split:
+   *
+   *   connection URL  = https://relay.example.com        (transport endpoint, no room)
+   *   broadcast name  = anon/{room}/{participantId}       (full absolute path)
+   *
+   * The room segment lives exclusively in the broadcast name.
+   * Never append the room to the connection URL — the relay would see it twice,
+   * once as a URL path prefix and again inside the broadcast name.
+   */
   const getRoomPrefix = (name: string) => `anon/${name}`;
   const getPublishName = (prefix: string) => `${prefix}/${broadcastId}`;
   const joinedRelayPath = () => getRoomPrefix(joinedRoomName());

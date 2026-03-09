@@ -14,6 +14,10 @@ export const RELAY_OPTIONS: RelayOption[] = [
     name: "moq relay nofilter",
     url: "https://moq-relay.nofilter.io/",
   },
+  {
+    name: "CF Draft 14",
+    url: "https://draft-14.cloudflare.mediaoverquic.com/",
+  },
 ];
 
 const DEFAULT_RELAY = RELAY_OPTIONS[0].url;
